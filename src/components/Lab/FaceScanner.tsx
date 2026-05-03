@@ -142,7 +142,25 @@ export function FaceScanner({
       }
       setPhase("ready");
     } catch (e: unknown) {
-      setError(humanizeCameraError(e));
+      // For "no camera" errors, also probe the device list so we can tell
+      // the user whether the browser sees any video inputs at all.
+      const baseMsg = humanizeCameraError(e);
+      const name = (e as DOMException)?.name;
+      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        try {
+          const devs = await navigator.mediaDevices.enumerateDevices();
+          const cams = devs.filter((d) => d.kind === "videoinput");
+          const diag =
+            cams.length === 0
+              ? "Browser sees 0 video inputs — your computer has no working camera the browser can access. Likely causes: (1) no webcam attached, (2) camera disabled in Device Manager, or (3) Windows Privacy → Camera → Camera access is OFF for this device."
+              : `Browser sees ${cams.length} video input${cams.length === 1 ? "" : "s"} but couldn't open ${cams.length === 1 ? "it" : "any of them"} — the camera is probably blocked at the OS or browser permission level, or another app is holding it.`;
+          setError(`${baseMsg}\n\n${diag}`);
+        } catch {
+          setError(baseMsg);
+        }
+      } else {
+        setError(baseMsg);
+      }
       setPhase("error");
     }
   }
@@ -329,9 +347,11 @@ export function FaceScanner({
         )}
 
         {phase === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto bg-black/80 px-6 py-8 text-center">
             <p className="label-xs text-rose-300">Error</p>
-            <p className="max-w-md px-6 text-sm text-white/80">{error}</p>
+            <p className="max-w-lg whitespace-pre-line text-sm leading-relaxed text-white/80">
+              {error}
+            </p>
             <button
               onClick={start}
               className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-white/10"
