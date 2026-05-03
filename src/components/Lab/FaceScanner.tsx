@@ -549,19 +549,6 @@ export function FaceScanner({
     const H = overlay.height;
     const ctx = overlay.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
-
-    // DIAGNOSTIC: unconditionally draw a magenta block in the top-left.
-    // If you see this, drawing on the canvas works → bug is inside
-    // drawAROverlay. If you don't, the buffer is somehow lost between
-    // clearRect and the next paint.
-    ctx.fillStyle = "rgba(217, 70, 239, 0.85)";
-    ctx.fillRect(20, 20, 200, 100);
-    ctx.fillStyle = "white";
-    ctx.font = "bold 24px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("DRAW OK", 120, 70);
 
     const detection = await faceapi
       .detectSingleFace(
@@ -569,6 +556,22 @@ export function FaceScanner({
         new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 })
       )
       .withFaceLandmarks();
+
+    // CLEAR + DRAW happens AFTER the await. Previously clearRect + the
+    // DRAW OK debug block were drawn BEFORE the await, then drawAROverlay
+    // drew AFTER the await — and React's reconciliation during the await
+    // appears to be wiping the buffer. Doing all drawing in one synchronous
+    // burst at the end of the frame avoids that race.
+    ctx.clearRect(0, 0, W, H);
+
+    // DIAGNOSTIC: magenta block — now drawn AFTER the await.
+    ctx.fillStyle = "rgba(217, 70, 239, 0.85)";
+    ctx.fillRect(20, 20, 200, 100);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 24px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("DRAW OK", 120, 70);
 
     if (detection) {
       const box = detection.detection.box;
