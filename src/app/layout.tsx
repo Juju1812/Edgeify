@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { UserProvider } from "@/lib/user-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="relative min-h-screen antialiased">
-        <div className="relative z-10">{children}</div>
+        <UserProvider>
+          <div className="relative z-10">{children}</div>
+        </UserProvider>
       </body>
     </html>
   );

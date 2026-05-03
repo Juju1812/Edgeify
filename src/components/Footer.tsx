@@ -16,7 +16,7 @@ export function Footer() {
           <Link href="/terms" className="hover:text-white">
             Terms
           </Link>
-          <Link href="/data" className="hover:text-white">
+          <Link href="/profile" className="hover:text-white">
             Delete my data
           </Link>
           <Link href="/touch-grass" className="hover:text-mog-violet">
