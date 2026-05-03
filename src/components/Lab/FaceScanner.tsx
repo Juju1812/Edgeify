@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   computeEdgeScore,
+  estimatePose,
   eyeAspectRatio,
   getEyePoints,
+  trimmedMean,
+  type FacePose,
   type Pt
 } from "@/lib/edge-score";
 import type { EdgeScoreBreakdown } from "@/lib/types";
@@ -107,6 +110,261 @@ async function getCameraStream(): Promise<MediaStream> {
     }
   }
   throw lastErr;
+}
+
+const TARGET_SAMPLES = 50;
+
+// ─── AR overlay helpers ──────────────────────────────────────────────────
+
+const COLOR = {
+  trackedGood: "rgba(74, 222, 128, 0.9)",   // green-400
+  trackedBad: "rgba(245, 158, 11, 0.7)",    // amber-500
+  cyan: "#22d3ee",
+  magenta: "#d946ef",
+  amber: "#f59e0b"
+};
+
+function drawAROverlay(
+  ctx: CanvasRenderingContext2D,
+  points: Pt[],
+  box: { x: number; y: number; width: number; height: number },
+  avg: EdgeScoreBreakdown,
+  W: number,
+  H: number,
+  pose: FacePose
+) {
+  // Mirror x so coords match the visible (CSS-mirrored) video.
+  const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
+  const mb = {
+    x: W - box.x - box.width,
+    y: box.y,
+    w: box.width,
+    h: box.height
+  };
+
+  // Tracked landmarks: small green dots on every point.
+  ctx.fillStyle = pose.goodForScoring ? COLOR.trackedGood : COLOR.trackedBad;
+  for (const p of points) {
+    const { x, y } = mx(p);
+    ctx.beginPath();
+    ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Anchor positions (face landmarks the labels point to).
+  const aSymmetry = mx(points[27]);
+  const aTilt = mx(points[45]);
+  const aJawline = mx(points[8]);
+  const aCheek = mx(points[2]);
+  const aRatio = mx({
+    x: (points[19].x + points[24].x) / 2,
+    y: (points[19].y + points[24].y) / 2
+  });
+
+  // Label positions, clamped to canvas. Layout:
+  //   top-center            → SYMMETRY
+  //   right of face, upper  → TILT
+  //   right of face, mid    → GOLDEN RATIO
+  //   left of face, mid     → CHEEKBONES
+  //   left of face, lower   → JAWLINE
+  //   bottom-center, big    → EDGESCORE composite
+  const padX = 70;
+  const labels: Array<{
+    anchor: Pt;
+    pos: Pt;
+    title: string;
+    value: string;
+    color: string;
+    big?: boolean;
+  }> = [
+    {
+      anchor: aSymmetry,
+      pos: { x: mb.x + mb.w / 2, y: Math.max(28, mb.y - 28) },
+      title: "SYMMETRY",
+      value: pctStr(avg.symmetry),
+      color: COLOR.cyan
+    },
+    {
+      anchor: aTilt,
+      pos: {
+        x: Math.min(W - 50, mb.x + mb.w + padX),
+        y: mb.y + mb.h * 0.22
+      },
+      title: "TILT",
+      value: degStr(avg.canthalTilt),
+      color: COLOR.cyan
+    },
+    {
+      anchor: aRatio,
+      pos: {
+        x: Math.min(W - 50, mb.x + mb.w + padX),
+        y: mb.y + mb.h * 0.55
+      },
+      title: "GOLDEN RATIO",
+      value: pctStr(avg.goldenRatio),
+      color: COLOR.cyan
+    },
+    {
+      anchor: aCheek,
+      pos: { x: Math.max(50, mb.x - padX), y: mb.y + mb.h * 0.45 },
+      title: "CHEEKBONES",
+      value: pctStr(avg.cheekboneProm),
+      color: COLOR.cyan
+    },
+    {
+      anchor: aJawline,
+      pos: { x: Math.max(50, mb.x - padX), y: mb.y + mb.h * 0.85 },
+      title: "JAWLINE",
+      value: pctStr(avg.jawlineDefinition),
+      color: COLOR.cyan
+    },
+    {
+      anchor: { x: mb.x + mb.w / 2, y: mb.y + mb.h - 4 },
+      pos: { x: mb.x + mb.w / 2, y: Math.min(H - 26, mb.y + mb.h + 38) },
+      title: "EDGESCORE",
+      value: Math.round(avg.composite).toString(),
+      color: COLOR.magenta,
+      big: true
+    }
+  ];
+
+  for (const l of labels) {
+    drawAnchorAndLabel(ctx, l.anchor, l.pos, l.title, l.value, l.color, !!l.big);
+  }
+
+  // Pose hint when frame is too off-axis to be sampled.
+  if (!pose.goodForScoring) {
+    ctx.font = "bold 12px ui-monospace, monospace";
+    ctx.fillStyle = COLOR.amber;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText("LOOK STRAIGHT AT THE CAMERA", W / 2, 12);
+  }
+}
+
+function drawAnchorAndLabel(
+  ctx: CanvasRenderingContext2D,
+  anchor: Pt,
+  labelPos: Pt,
+  title: string,
+  value: string,
+  color: string,
+  big: boolean
+) {
+  // Connector line (faint)
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(anchor.x, anchor.y);
+  ctx.lineTo(labelPos.x, labelPos.y);
+  ctx.stroke();
+  ctx.restore();
+
+  // Anchor dot with glow
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(anchor.x, anchor.y, big ? 4 : 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Sizing
+  const titleFont = big
+    ? "bold 10px ui-monospace, monospace"
+    : "bold 9px ui-monospace, monospace";
+  const valueFont = big
+    ? "bold 24px ui-monospace, monospace"
+    : "bold 14px ui-monospace, monospace";
+  ctx.font = titleFont;
+  const tw = ctx.measureText(title).width;
+  ctx.font = valueFont;
+  const vw = ctx.measureText(value).width;
+  const w = Math.max(tw, vw) + (big ? 22 : 16);
+  const h = big ? 48 : 34;
+  const x = labelPos.x - w / 2;
+  const y = labelPos.y - h / 2;
+
+  // Label background
+  ctx.save();
+  roundRect(ctx, x, y, w, h, big ? 8 : 6);
+  ctx.fillStyle = "rgba(7, 5, 18, 0.85)";
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // Title text
+  ctx.font = titleFont;
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, labelPos.x, labelPos.y - (big ? 13 : 8));
+
+  // Value text
+  ctx.font = valueFont;
+  ctx.fillStyle = color;
+  ctx.fillText(value, labelPos.x, labelPos.y + (big ? 9 : 8));
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function pctStr(x: number): string {
+  return `${Math.round(x * 100)}%`;
+}
+
+function degStr(canthalTiltNorm: number): string {
+  const v = canthalTiltNorm * 12;
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}°`;
+}
+
+function trimmedAverage(samples: EdgeScoreBreakdown[]): EdgeScoreBreakdown {
+  if (samples.length === 0)
+    return {
+      symmetry: 0,
+      jawlineDefinition: 0,
+      canthalTilt: 0,
+      cheekboneProm: 0,
+      goldenRatio: 0,
+      composite: 0
+    };
+  const trim = (key: keyof EdgeScoreBreakdown) =>
+    trimmedMean(
+      samples.map((s) => s[key] as number),
+      0.15
+    );
+  return {
+    symmetry: trim("symmetry"),
+    jawlineDefinition: trim("jawlineDefinition"),
+    canthalTilt: trim("canthalTilt"),
+    cheekboneProm: trim("cheekboneProm"),
+    goldenRatio: trim("goldenRatio"),
+    composite: trim("composite")
+  };
 }
 
 function humanizeCameraError(e: unknown): string {
@@ -273,7 +531,10 @@ export function FaceScanner({
     ctx.clearRect(0, 0, W, H);
 
     const detection = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+      .detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 })
+      )
       .withFaceLandmarks();
 
     if (detection) {
@@ -282,30 +543,31 @@ export function FaceScanner({
         x: p.x,
         y: p.y
       }));
+      const pose = estimatePose(points);
 
-      // Bounding box
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.85)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(box.x, box.y, box.width, box.height);
-
-      // Landmark dots
-      ctx.fillStyle = "rgba(168, 85, 247, 0.9)";
-      for (const p of points) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
-        ctx.fill();
+      // Only contribute samples when the pose is roughly frontal — a
+      // tilted/turned head warps every metric. The AR overlay still
+      // renders so the user sees the dots; we just don't trust those
+      // frames for scoring.
+      if (pose.goodForScoring) {
+        const sample = computeEdgeScore(points);
+        samplesRef.current.push(sample);
+        totalSamplesRef.current += 1;
+        if (samplesRef.current.length > TARGET_SAMPLES)
+          samplesRef.current.shift();
       }
 
-      // Sampling
-      const sample = computeEdgeScore(points);
-      samplesRef.current.push(sample);
-      totalSamplesRef.current += 1;
-      // Keep last 30 samples for stability
-      if (samplesRef.current.length > 30) samplesRef.current.shift();
-
-      // Smooth display by averaging recent samples
-      const avg = averageSamples(samplesRef.current);
+      // Rolling trimmed-mean for the live HUD. Falls back to the current
+      // frame's score until we have any samples (fade-in).
+      const avg =
+        samplesRef.current.length > 0
+          ? trimmedAverage(samplesRef.current)
+          : computeEdgeScore(points);
       setLiveScore(avg);
+
+      // AR overlay — green dots on every landmark, cyan anchor points,
+      // floating labels with live values per metric.
+      drawAROverlay(ctx, points, box, avg, W, H, pose);
 
       // ─── Liveness with adaptive thresholds ─────────────────────────
       const eyes = getEyePoints(points);
@@ -314,9 +576,6 @@ export function FaceScanner({
       lastEarRef.current = ear;
       setLiveEar(ear);
 
-      // Establish a baseline from the first ~12 frames (~0.6s at 20fps).
-      // Use the median (sorted middle value) so a stray closed-eye frame
-      // doesn't anchor the baseline too low.
       if (earBaselineRef.current === null) {
         earBaselineSamplesRef.current.push(ear);
         if (earBaselineSamplesRef.current.length >= 12) {
@@ -327,8 +586,6 @@ export function FaceScanner({
         const baseline = earBaselineRef.current;
         const closedThresh = baseline * 0.65;
         const openThresh = baseline * 0.85;
-
-        // Two-frame debounce: require sustained "closed" before flipping.
         if (ear < closedThresh) {
           earBelowFramesRef.current += 1;
           if (earBelowFramesRef.current >= 2 && !earWasLowRef.current) {
@@ -344,19 +601,15 @@ export function FaceScanner({
         }
       }
 
-      // Progress: roll up to 100% over enough total samples to be stable.
+      // Progress + completion
       const elapsed = performance.now() - scanStartRef.current;
-      const sampleProgress = Math.min(1, totalSamplesRef.current / 30);
-      const timeProgress = Math.min(1, elapsed / 4000); // 4s soft target
+      const sampleProgress = Math.min(1, totalSamplesRef.current / TARGET_SAMPLES);
+      const timeProgress = Math.min(1, elapsed / 5500);
       setProgress(Math.max(sampleProgress, timeProgress));
 
-      // Completion gate:
-      //   1. Got at least 30 samples AND a blink → ideal path.
-      //   2. Got 30 samples AND it's been >7s → liveness check timed
-      //      out, accept anyway (mark as skipped).
-      const enoughSamples = totalSamplesRef.current >= 30;
+      const enoughSamples = totalSamplesRef.current >= TARGET_SAMPLES;
       const blinkOk = blinksRef.current >= 1;
-      const livenessTimeout = elapsed > 7000;
+      const livenessTimeout = elapsed > 8000;
 
       if (enoughSamples && blinkOk) {
         finalize(avg, false);
@@ -368,9 +621,11 @@ export function FaceScanner({
         return;
       }
     } else {
-      ctx.font = "12px monospace";
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.fillText("LOOKING FOR FACE…", 12, 20);
+      ctx.font = "bold 14px ui-monospace, monospace";
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("LOOKING FOR FACE…", W / 2, H / 2);
     }
 
     rafRef.current = requestAnimationFrame(loop);
@@ -414,7 +669,7 @@ export function FaceScanner({
           ref={overlayRef}
           width={640}
           height={480}
-          className="pointer-events-none absolute inset-0 h-full w-full -scale-x-100 object-cover"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
         />
         <canvas ref={captureRef} className="hidden" />
 
@@ -509,7 +764,6 @@ export function FaceScanner({
               style={{ width: `${progress * 100}%` }}
             />
           </div>
-          {liveScore && <LiveMetrics s={liveScore} />}
           {progress >= 0.99 && blinks === 0 && (
             <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
               <span>Trouble detecting blinks?</span>
@@ -546,56 +800,3 @@ function Overlay({ label }: { label: string }) {
   );
 }
 
-function LiveMetrics({ s }: { s: EdgeScoreBreakdown }) {
-  const rows: [string, string][] = [
-    ["Symmetry", pct(s.symmetry)],
-    ["Jawline definition", pct(s.jawlineDefinition)],
-    ["Canthal tilt", `${(s.canthalTilt * 12).toFixed(1)}°`],
-    ["Cheekbone prom.", pct(s.cheekboneProm)],
-    ["Golden ratio", pct(s.goldenRatio)]
-  ];
-  return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-1 pt-3 text-[11px] uppercase tracking-[0.18em] text-white/60 sm:grid-cols-3">
-      {rows.map(([k, v]) => (
-        <div key={k} className="flex items-center justify-between gap-2">
-          <span>{k}</span>
-          <span className="font-mono text-white/90">{v}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function pct(x: number) {
-  return `${Math.round(x * 100)}%`;
-}
-
-function averageSamples(samples: EdgeScoreBreakdown[]): EdgeScoreBreakdown {
-  const n = samples.length || 1;
-  const sum = samples.reduce(
-    (acc, s) => ({
-      symmetry: acc.symmetry + s.symmetry,
-      jawlineDefinition: acc.jawlineDefinition + s.jawlineDefinition,
-      canthalTilt: acc.canthalTilt + s.canthalTilt,
-      cheekboneProm: acc.cheekboneProm + s.cheekboneProm,
-      goldenRatio: acc.goldenRatio + s.goldenRatio,
-      composite: acc.composite + s.composite
-    }),
-    {
-      symmetry: 0,
-      jawlineDefinition: 0,
-      canthalTilt: 0,
-      cheekboneProm: 0,
-      goldenRatio: 0,
-      composite: 0
-    }
-  );
-  return {
-    symmetry: sum.symmetry / n,
-    jawlineDefinition: sum.jawlineDefinition / n,
-    canthalTilt: sum.canthalTilt / n,
-    cheekboneProm: sum.cheekboneProm / n,
-    goldenRatio: sum.goldenRatio / n,
-    composite: sum.composite / n
-  };
-}

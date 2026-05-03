@@ -35,6 +35,90 @@ function clampSigned(x: number) {
   return Math.max(-1, Math.min(1, x));
 }
 
+export type FacePose = {
+  roll: number;            // radians, in-plane tilt (head tilted shoulder-to-shoulder)
+  yaw: number;             // approx radians, head turned left/right
+  pitch: number;           // approx radians, head tilted up/down
+  goodForScoring: boolean; // pose is close enough to frontal to trust scoring
+};
+
+/**
+ * Estimate head pose from 68 landmarks. Roll is exact (line through the
+ * outer eye corners). Yaw and pitch are approximated from 2D ratios —
+ * good enough to reject obviously off-axis frames; not metric-grade.
+ */
+export function estimatePose(points: Pt[]): FacePose {
+  if (points.length !== 68) {
+    return { roll: 0, yaw: 0, pitch: 0, goodForScoring: false };
+  }
+
+  // Roll: angle of the line from the right outer eye corner to the left
+  // outer eye corner. (Y grows downward in image coordinates, hence atan2
+  // returns a positive value when the user tilts to their left.)
+  const rEye = points[36];
+  const lEye = points[45];
+  const roll = Math.atan2(lEye.y - rEye.y, lEye.x - rEye.x);
+
+  // Yaw proxy: horizontal offset of the nose midline relative to the
+  // midpoint between the outer face contour points (0 and 16). When the
+  // head turns, the nose drifts toward whichever ear is rotating away.
+  const faceMidX = (points[0].x + points[16].x) / 2;
+  const noseMidX = (points[27].x + points[33].x) / 2;
+  const faceWidth = dist(points[0], points[16]) || 1;
+  const yawRatio = (noseMidX - faceMidX) / faceWidth;
+  const yaw = yawRatio * (Math.PI / 3); // empirical scale
+
+  // Pitch proxy: ratio of nose-base-to-chin vs nose-top-to-brow. When the
+  // user looks down, the lower portion shortens; when they look up, the
+  // upper portion shortens. Neutral ~ 1.0 for most adults.
+  const browMid = midpoint(points[19], points[24]);
+  const noseToChin = dist(points[33], points[8]);
+  const noseToBrow = dist(points[27], browMid) || 1;
+  const pitchRatio = noseToChin / noseToBrow;
+  const pitch = (pitchRatio - 1.0) * 0.6;
+
+  const goodForScoring =
+    Math.abs(roll) < 0.18 && // ~10°
+    Math.abs(yaw) < 0.22 && // ~12°
+    Math.abs(pitch) < 0.35;
+
+  return { roll, yaw, pitch, goodForScoring };
+}
+
+/**
+ * Rotate landmarks so the eye line is horizontal. Centers on the
+ * midpoint between the outer eye corners. After this, "x reflection"
+ * symmetry is meaningful even if the head was tilted in the original
+ * frame.
+ */
+export function frontalize(points: Pt[]): Pt[] {
+  if (points.length !== 68) return points;
+  const pose = estimatePose(points);
+  const center = midpoint(points[36], points[45]);
+  const cos = Math.cos(-pose.roll);
+  const sin = Math.sin(-pose.roll);
+  return points.map((p) => {
+    const dx = p.x - center.x;
+    const dy = p.y - center.y;
+    return {
+      x: cos * dx - sin * dy + center.x,
+      y: sin * dx + cos * dy + center.y
+    };
+  });
+}
+
+/**
+ * Trimmed mean — discard the top and bottom `frac` of values and average
+ * the rest. More robust than plain mean against face-detection outliers.
+ */
+export function trimmedMean(values: number[], frac = 0.15): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const drop = Math.floor(sorted.length * frac);
+  const slice = sorted.slice(drop, sorted.length - drop);
+  return slice.reduce((s, v) => s + v, 0) / Math.max(1, slice.length);
+}
+
 /**
  * Reflect a point across a vertical axis at xAxis.
  */
@@ -48,9 +132,14 @@ function reflectX(p: Pt, xAxis: number): Pt {
  * IMPORTANT: this is an entertainment metric. It measures a handful of
  * geometric properties — symmetry, jawline angularity, canthal tilt, etc.
  * It does not — and cannot — measure attractiveness.
+ *
+ * Computation runs on FRONTALIZED points (rotated so the eye line is
+ * horizontal) so symmetry/cheekbone metrics aren't ruined by an in-plane
+ * head tilt. Canthal tilt is the exception — it's the actual tilt and
+ * therefore measured on the raw, un-rotated points.
  */
-export function computeEdgeScore(points: Pt[]): EdgeScoreBreakdown {
-  if (points.length !== 68) {
+export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
+  if (rawPoints.length !== 68) {
     return {
       symmetry: 0.5,
       jawlineDefinition: 0.5,
@@ -60,6 +149,8 @@ export function computeEdgeScore(points: Pt[]): EdgeScoreBreakdown {
       composite: 50
     };
   }
+
+  const points = frontalize(rawPoints);
 
   // Reference axis for symmetry: mid of nose bridge.
   const noseTop = points[27];
@@ -110,15 +201,18 @@ export function computeEdgeScore(points: Pt[]): EdgeScoreBreakdown {
   const jawlineDefinition = clamp01((jawCurvature - 1.0) / 2.6);
 
   // ─── Canthal tilt ─────────────────────────────────────────────────────
-  // Angle of the line from inner-eye-corner to outer-eye-corner, signed
-  // so positive = "positive" (outer-up) tilt. We'll use the right eye
-  // (points 36 outer, 39 inner). Y axis grows downward in image coords.
-  const rOuter = points[36];
-  const rInner = points[39];
-  const dx = rInner.x - rOuter.x;
-  const dy = rInner.y - rOuter.y;
-  const angleRad = Math.atan2(-dy, dx); // negate dy so up is positive
-  const angleDeg = angleRad * (180 / Math.PI);
+  // After frontalization the line through the outer eye corners is
+  // perfectly horizontal, so any remaining vertical offset between the
+  // outer and inner corners of one eye is pure canthal tilt — no head-
+  // roll contamination. Average left and right eyes for stability.
+  function eyeTiltDeg(outer: Pt, inner: Pt): number {
+    const eyeWidth = Math.abs(inner.x - outer.x) || 1;
+    const verticalOffset = inner.y - outer.y; // positive = outer above inner
+    return Math.atan2(verticalOffset, eyeWidth) * (180 / Math.PI);
+  }
+  const tiltR = eyeTiltDeg(points[36], points[39]);
+  const tiltL = eyeTiltDeg(points[45], points[42]);
+  const angleDeg = (tiltR + tiltL) / 2;
   // Typical observed range -10..+15 deg. Normalize to -1..1.
   const canthalTilt = clampSigned(angleDeg / 12);
 
