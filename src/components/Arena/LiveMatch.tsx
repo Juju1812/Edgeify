@@ -520,63 +520,83 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     const start = performance.now();
     const criterion = ROUND_CRITERIA[idx].key;
 
+    const finishRound = () => {
+      const samples = sampleBufferRef.current;
+      const finalVal =
+        samples.length >= 5
+          ? Math.round(trimmedMean(samples, 0.15))
+          : samples.length > 0
+            ? Math.round(samples.reduce((s, v) => s + v, 0) / samples.length)
+            : 50; // pure fallback if no detection ever landed
+      setLiveMine(finalVal);
+      setMyScoreReady({ idx, value: finalVal });
+      sendMsg({ type: "score", idx, value: finalVal });
+
+      const overlay = localOverlayElRef.current;
+      const ctx = overlay?.getContext("2d");
+      if (overlay && ctx) ctx.clearRect(0, 0, overlay.width, overlay.height);
+    };
+
     const tick = async () => {
+      // Hard timeout BEFORE anything else — guarantees the round always
+      // ends within SCAN_MS, even if the camera/face-api is unhappy.
+      const elapsed = performance.now() - start;
+      if (elapsed >= SCAN_MS) {
+        finishRound();
+        return;
+      }
+
       const faceapi = faceApiRef.current;
       const video = localVideoRef.current;
       if (!faceapi || !video || video.readyState < 2) {
+        // Video / models not ready — wait, but the timeout check above
+        // ensures we won't wait past SCAN_MS.
         scanRafRef.current = requestAnimationFrame(tick);
         return;
       }
 
-      const det = await faceapi
-        .detectSingleFace(
-          video,
-          new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 })
-        )
-        .withFaceLandmarks();
-
       // Always clear the overlay canvas at the start of each frame; only
-      // re-draw when we have a detection.
+      // re-draw when we have a detection. Try/catch in case detection
+      // throws during a disconnect/teardown race.
       const overlay = localOverlayElRef.current;
       const ctx = overlay?.getContext("2d") || null;
       if (overlay && ctx) {
         ctx.clearRect(0, 0, overlay.width, overlay.height);
       }
 
-      if (det) {
-        const points: Pt[] = det.landmarks.positions.map((p) => ({ x: p.x, y: p.y }));
-        const score = computeEdgeScore(points);
-        const v = scoreFor(score, criterion);
-        sampleBufferRef.current.push(v);
-        // Live indicator (running trimmed mean of recent samples)
-        if (sampleBufferRef.current.length >= 5) {
-          setLiveMine(
-            Math.round(trimmedMean(sampleBufferRef.current.slice(-15), 0.2))
-          );
-        }
+      try {
+        const det = await faceapi
+          .detectSingleFace(
+            video,
+            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 })
+          )
+          .withFaceLandmarks();
 
-        // Draw AR overlay (green tracking dots + face frame).
-        if (overlay && ctx) {
-          drawLiveOverlay(ctx, points, det.detection.box, overlay.width);
+        if (det) {
+          const points: Pt[] = det.landmarks.positions.map((p) => ({
+            x: p.x,
+            y: p.y
+          }));
+          const score = computeEdgeScore(points);
+          const v = scoreFor(score, criterion);
+          sampleBufferRef.current.push(v);
+          if (sampleBufferRef.current.length >= 5) {
+            setLiveMine(
+              Math.round(trimmedMean(sampleBufferRef.current.slice(-15), 0.2))
+            );
+          }
+
+          if (overlay && ctx) {
+            drawLiveOverlay(ctx, points, det.detection.box, overlay.width);
+          }
         }
+      } catch {
+        /* keep ticking — the timeout will eventually finish the round */
       }
 
-      const elapsed = performance.now() - start;
-      if (elapsed < SCAN_MS) {
-        scanRafRef.current = requestAnimationFrame(tick);
-      } else {
-        // Done sampling — compute final round score
-        const samples = sampleBufferRef.current;
-        const finalVal =
-          samples.length >= 5 ? Math.round(trimmedMean(samples, 0.15)) : Math.round(samples[0] || 50);
-        setLiveMine(finalVal);
-        setMyScoreReady({ idx, value: finalVal });
-        sendMsg({ type: "score", idx, value: finalVal });
-
-        // Clear the overlay one last time so it doesn't linger.
-        if (overlay && ctx) ctx.clearRect(0, 0, overlay.width, overlay.height);
-      }
+      scanRafRef.current = requestAnimationFrame(tick);
     };
+
     tick();
   }
 
@@ -1109,7 +1129,7 @@ function PlayerTile(props: {
             ref={props.overlayRef}
             width={640}
             height={480}
-            className="pointer-events-none absolute inset-0 h-full w-full"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
         )}
       </div>
