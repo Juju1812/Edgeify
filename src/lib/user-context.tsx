@@ -82,6 +82,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const tokenRef = useRef<string | null>(null);
   const lastSyncedRef = useRef<string>("");
   const syncTimerRef = useRef<number | null>(null);
+  const heartbeatTimerRef = useRef<number | null>(null);
 
   // Load from local storage on mount, then check for an existing session.
   useEffect(() => {
@@ -123,6 +124,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (ready) saveToStorage(user);
   }, [user, ready]);
+
+  // While authed, ping the server every 30s so /api/stats can count us
+  // as online. Stop pinging on logout / unmount.
+  useEffect(() => {
+    if (!authedRemote || !tokenRef.current) return;
+    const ping = () => {
+      const t = tokenRef.current;
+      if (!t) return;
+      fetch("/api/heartbeat", {
+        method: "POST",
+        headers: { authorization: `Bearer ${t}` }
+      }).catch(() => {});
+    };
+    ping();
+    heartbeatTimerRef.current = window.setInterval(ping, 30_000);
+    return () => {
+      if (heartbeatTimerRef.current)
+        window.clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    };
+  }, [authedRemote]);
 
   // Debounced server sync when authed.
   useEffect(() => {

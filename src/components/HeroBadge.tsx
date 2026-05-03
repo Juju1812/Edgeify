@@ -1,10 +1,32 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { rankFromElo } from "@/lib/rank";
 
 export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
   const { user, status, ready } = useUser();
+  const [stats, setStats] = useState<{ onlineCount: number; inQueueCount: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("/api/stats");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setStats(data);
+      } catch {
+        /* */
+      }
+    };
+    fetchStats();
+    const t = window.setInterval(fetchStats, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col items-center gap-5">
@@ -58,7 +80,13 @@ export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
           <span className="absolute inset-0 animate-pulse-dot rounded-full bg-emerald-400/60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
         </span>
-        <span className="text-[11px] tracking-[0.22em]">Online</span>
+        <span className="text-[11px] tracking-[0.22em]">
+          {stats
+            ? `${stats.onlineCount} Online${
+                stats.inQueueCount > 0 ? ` · ${stats.inQueueCount} Queued` : ""
+              }`
+            : "Online"}
+        </span>
       </div>
     </div>
   );

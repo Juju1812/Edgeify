@@ -1,0 +1,19 @@
+{
+  "name": "Edgify — Ranked 1v1 Face-Offs",
+  "short_name": "Edgify",
+  "description": "Ranked 1v1 face-off platform. Real opponents, AI-judged, live ELO.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070512",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

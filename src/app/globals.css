@@ -108,3 +108,24 @@ body::before {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Mobile touch-target sizing — make small chiclet buttons and pills
+   actually tappable on a phone without making desktop look bloated. */
+@media (max-width: 640px) {
+  .pill {
+    @apply px-3 py-2;
+  }
+  .heading-card {
+    @apply text-xl;
+  }
+}
+
+/* Prevent iOS Safari from zooming on input focus */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="number"] {
+    font-size: 16px;
+  }
+}

@@ -28,6 +28,12 @@ export const userKey = (u: string) => `user:${u.toLowerCase()}`;
 export const sessionKey = (t: string) => `session:${t}`;
 export const profileKey = (u: string) => `profile:${u.toLowerCase()}`;
 
+// Leaderboard infrastructure
+export const LEADERBOARD_KEY = "lb:elo:v1";
+export const lbSummaryKey = (u: string) => `lb:summary:v1:${u.toLowerCase()}`;
+export const onlineKey = (u: string) => `online:v1:${u.toLowerCase()}`;
+export const ONLINE_TTL_SEC = 60;
+
 /** Generate a random 32-byte hex token (~256 bits of entropy). */
 export function generateSessionToken(): string {
   const bytes = new Uint8Array(32);

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { computeEdgeScore, trimmedMean, type Pt } from "@/lib/edge-score";
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
+import { playSfx, vibrate } from "@/lib/audio";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -46,7 +47,11 @@ type LiveMsg =
   | { type: "score-tick"; idx: number; value: number } // running score during scan
   | { type: "score"; idx: number; value: number }      // final score for the round
   | { type: "result"; winner: "host" | "guest"; myWins: number; oppWins: number }
+  | { type: "reaction"; emoji: string }                // emoji burst from sender
   | { type: "leave" };
+
+const REACTION_EMOJIS = ["🔥", "💀", "👑", "😂", "🗿", "🤡"];
+type ReactionPing = { id: number; emoji: string; from: "me" | "opp" };
 
 /**
  * Standard 68-point face contour groupings (jaw, brows, eyes, nose,
@@ -174,6 +179,22 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     rounds: { me: number; opp: number }[];
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [reactions, setReactions] = useState<ReactionPing[]>([]);
+  const reactionIdRef = useRef(0);
+
+  function spawnReaction(from: "me" | "opp", emoji: string) {
+    const id = ++reactionIdRef.current;
+    setReactions((prev) => [...prev, { id, emoji, from }]);
+    playSfx("reaction");
+    window.setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 2200);
+  }
+
+  function sendReaction(emoji: string) {
+    spawnReaction("me", emoji);
+    sendMsg({ type: "reaction", emoji });
+  }
 
   // ─── Refs (don't re-render on change) ─────────────────────────────
   // localVideoRef is mutable (assigned from a callback ref), so the type
@@ -575,6 +596,9 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           finalizeMatch(won, msg.oppWins, msg.myWins);
         }
         break;
+      case "reaction":
+        spawnReaction("opp", msg.emoji);
+        break;
       case "leave":
         if (phase !== "result") {
           setError("Opponent left the match.");
@@ -593,6 +617,7 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     setLiveMine(0);
     setLiveOpp(0);
     setPhase("scanning");
+    playSfx("matchStart");
     runScanLoop(idx);
   }
 
@@ -789,6 +814,8 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
 
     setMatchResult({ won, delta, rounds: scoreboard });
     setPhase("result");
+    playSfx(won ? "win" : "lose");
+    vibrate(won ? [50, 80, 50, 80, 200] : [400]);
   }
 
   async function copyCode() {
@@ -879,6 +906,8 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           liveOpp={liveOpp}
           scoreboard={scoreboard}
           criterionLabel={ROUND_CRITERIA[round]?.label || ""}
+          reactions={reactions}
+          onReact={sendReaction}
         />
       )}
 
@@ -1099,7 +1128,9 @@ function Arena({
   liveMine,
   liveOpp,
   scoreboard,
-  criterionLabel
+  criterionLabel,
+  reactions,
+  onReact
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1111,6 +1142,8 @@ function Arena({
   liveOpp: number;
   scoreboard: { me: number; opp: number }[];
   criterionLabel: string;
+  reactions: ReactionPing[];
+  onReact: (emoji: string) => void;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1170,6 +1203,7 @@ function Arena({
           score={phase === "scanning" || phase === "between" ? liveMine : null}
           showScore={phase === "scanning" || phase === "between"}
           isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
+          reactions={reactions.filter((r) => r.from === "me")}
         />
 
         <div className="flex flex-col items-center gap-2">
@@ -1190,7 +1224,22 @@ function Arena({
           score={phase === "scanning" || phase === "between" ? liveOpp : null}
           showScore={phase === "scanning" || phase === "between"}
           isWinner={phase === "between" && lastRound ? lastRound.opp > lastRound.me : null}
+          reactions={reactions.filter((r) => r.from === "opp")}
         />
+      </div>
+
+      {/* Emoji reaction bar */}
+      <div className="mt-3 flex items-center justify-center gap-2">
+        {REACTION_EMOJIS.map((e) => (
+          <button
+            key={e}
+            onClick={() => onReact(e)}
+            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-lg transition hover:scale-110 hover:border-mog-violet/50 hover:bg-mog-violet/10 active:scale-95"
+            aria-label={`React with ${e}`}
+          >
+            {e}
+          </button>
+        ))}
       </div>
 
       {phase === "scanning" && (
@@ -1224,6 +1273,7 @@ function PlayerTile(props: {
   score: number | null;
   showScore: boolean;
   isWinner: boolean | null;
+  reactions?: ReactionPing[];
 }) {
   const ringColor =
     props.isWinner === true
@@ -1252,6 +1302,22 @@ function PlayerTile(props: {
             className="pointer-events-none absolute inset-0 h-full w-full"
           />
         )}
+        {/* Floating emoji reactions — burst up from the bottom of the tile */}
+        <AnimatePresence>
+          {(props.reactions || []).map((r) => (
+            <motion.div
+              key={r.id}
+              initial={{ opacity: 0, y: 0, scale: 0.6 }}
+              animate={{ opacity: 1, y: -120, scale: 1.4 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
+              className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 text-5xl"
+              style={{ zIndex: 60 }}
+            >
+              {r.emoji}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
       <div className="border-t border-white/[0.04] bg-black/50 px-2 py-2 text-center">
         <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-white">
@@ -1284,6 +1350,65 @@ function Result({
   opponent: { username: string; elo: number };
   onClose: () => void;
 }) {
+  const { user } = useUser();
+  const [sharing, setSharing] = useState(false);
+  const [shareDone, setShareDone] = useState<"shared" | "downloaded" | null>(null);
+
+  async function share() {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const { renderShareCard } = await import("@/lib/share-card");
+      const myWins = result.rounds.reduce((s, r) => s + (r.me > r.opp ? 1 : 0), 0);
+      const oppWins = result.rounds.reduce((s, r) => s + (r.opp > r.me ? 1 : 0), 0);
+      const rank = rankFromElo(user.elo);
+      const blob = await renderShareCard({
+        myName: user.username || "PLAYER",
+        oppName: opponent.username,
+        myScore: myWins,
+        oppScore: oppWins,
+        myFace: user.faceDataUrl,
+        oppFace: null,
+        won: result.won,
+        eloDelta: result.delta,
+        rankLabel: rank.label,
+        rankColor: rank.color,
+        rankEmoji: rank.emoji
+      });
+      if (!blob) return;
+
+      const file = new File([blob], `edgify-match-${Date.now()}.png`, {
+        type: "image/png"
+      });
+
+      const navAny = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+      };
+      if (navAny.canShare && navAny.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "I just played Edgify",
+          text: `Edgify match: ${myWins}–${oppWins} vs ${opponent.username}. ${
+            result.delta >= 0 ? "+" : ""
+          }${result.delta} ELO.`
+        });
+        setShareDone("shared");
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+        setShareDone("downloaded");
+      }
+    } catch {
+      /* user cancelled or share unsupported */
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96 }}
@@ -1309,12 +1434,27 @@ function Result({
         {result.delta >= 0 ? "+" : ""}
         {result.delta} ELO
       </p>
-      <button
-        onClick={onClose}
-        className="mt-7 rounded-lg border border-white/10 bg-white/[0.02] px-6 py-3 text-xs uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
-      >
-        Back to Arena
-      </button>
+      <div className="mt-7 flex flex-wrap justify-center gap-3">
+        <button
+          onClick={share}
+          disabled={sharing}
+          className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30 disabled:opacity-50"
+        >
+          {sharing
+            ? "Rendering…"
+            : shareDone === "shared"
+              ? "Shared ✓"
+              : shareDone === "downloaded"
+                ? "Saved ✓"
+                : "Share Result"}
+        </button>
+        <button
+          onClick={onClose}
+          className="rounded-lg border border-white/10 bg-white/[0.02] px-6 py-3 text-xs uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+        >
+          Back to Arena
+        </button>
+      </div>
     </motion.div>
   );
 }

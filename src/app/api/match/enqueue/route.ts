@@ -42,19 +42,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_peerId" }, { status: 400 });
   }
 
-  // Look at up to a small batch of oldest waiters and try to claim one.
-  // The atomic ZREM ensures only one claimer wins each waiter.
-  const candidates = (await redis.zrange<string[]>(QUEUE_KEY, 0, 4)) || [];
+  // ELO-band matchmaking: prefer waiters within ±150 ELO of us. Scan up
+  // to 16 oldest seekers and pick the first one that's in band (or any
+  // candidate if either side is in placements). The band widens
+  // implicitly: if nobody matches our tight band, we self-enqueue, and
+  // by the time we're polled-against by a later arrival our ts will be
+  // older so the new arrival's `prefer oldest` heuristic accepts us.
+  const TIGHT_BAND = 150;
+  const candidates = (await redis.zrange<string[]>(QUEUE_KEY, 0, 15)) || [];
+
   for (const oppId of candidates) {
     if (oppId === peerId) continue;
+
+    const oppData =
+      (await redis.hgetall<Record<string, string>>(peerKey(oppId))) || {};
+    const oppElo = parseInt(oppData.elo || "1000", 10) || 1000;
+    const oppPlacements = parseInt(oppData.placementsLeft || "0", 10) || 0;
+    const eitherCalibrating = placementsLeft > 0 || oppPlacements > 0;
+
+    if (!eitherCalibrating && Math.abs(oppElo - elo) > TIGHT_BAND) {
+      continue;
+    }
+
     const removed = await redis.zrem(QUEUE_KEY, oppId);
     if (removed > 0) {
-      const oppData = (await redis.hgetall<Record<string, string>>(
-        peerKey(oppId)
-      )) || {};
       await redis.del(peerKey(oppId));
-
-      const oppElo = parseInt(oppData.elo || "1000", 10) || 1000;
 
       // Notify the waiting peer via their pair key.
       await redis.set(

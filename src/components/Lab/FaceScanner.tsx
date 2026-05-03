@@ -10,6 +10,7 @@ import {
   type FacePose,
   type Pt
 } from "@/lib/edge-score";
+import { playSfx } from "@/lib/audio";
 import type { EdgeScoreBreakdown } from "@/lib/types";
 
 type FaceApiNS = typeof import("face-api.js");
@@ -492,6 +493,10 @@ export function FaceScanner({
   const earWasLowRef = useRef(false);
   const lastEarRef = useRef(0);
 
+  // Head-turn liveness — track observed yaw range during the scan.
+  const yawMinRef = useRef(Number.POSITIVE_INFINITY);
+  const yawMaxRef = useRef(Number.NEGATIVE_INFINITY);
+
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0); // 0..1
@@ -577,6 +582,7 @@ export function FaceScanner({
 
   // ─── Scan loop ───────────────────────────────────────────────────────
   async function beginScan() {
+    playSfx("scanStart");
     setPhase("scanning");
     setProgress(0);
     blinksRef.current = 0;
@@ -584,6 +590,8 @@ export function FaceScanner({
     earBelowFramesRef.current = 0;
     earBaselineSamplesRef.current = [];
     earBaselineRef.current = null;
+    yawMinRef.current = Number.POSITIVE_INFINITY;
+    yawMaxRef.current = Number.NEGATIVE_INFINITY;
     samplesRef.current = [];
     totalSamplesRef.current = 0;
     scanStartRef.current = performance.now();
@@ -653,37 +661,24 @@ export function FaceScanner({
       // floating labels with live values per metric.
       drawAROverlay(ctx, points, box, avg, W, H, pose);
 
-      // ─── Liveness with adaptive thresholds ─────────────────────────
+      // ─── Liveness via head-turn (replaces unreliable blink/EAR check) ───
+      // Track the yaw range observed during the scan. If max(yaw) - min(yaw)
+      // > ~0.3 rad (~17°), the user has demonstrably moved their head — a
+      // still photo can't fake that. Falls back to existing time-based
+      // timeouts if the user holds perfectly still.
+      yawMinRef.current = Math.min(yawMinRef.current, pose.yaw);
+      yawMaxRef.current = Math.max(yawMaxRef.current, pose.yaw);
+      const yawRange = yawMaxRef.current - yawMinRef.current;
+      if (yawRange >= 0.30 && !blinksRef.current) {
+        blinksRef.current = 1; // re-using the variable for "liveness ok"
+        setBlinks(1);
+      }
+      // Still update EAR for HUD display, but don't gate on it.
       const eyes = getEyePoints(points);
       const ear =
         (eyeAspectRatio(eyes.left) + eyeAspectRatio(eyes.right)) / 2;
       lastEarRef.current = ear;
       setLiveEar(ear);
-
-      if (earBaselineRef.current === null) {
-        earBaselineSamplesRef.current.push(ear);
-        if (earBaselineSamplesRef.current.length >= 12) {
-          const sorted = [...earBaselineSamplesRef.current].sort();
-          earBaselineRef.current = sorted[Math.floor(sorted.length / 2)];
-        }
-      } else {
-        const baseline = earBaselineRef.current;
-        const closedThresh = baseline * 0.65;
-        const openThresh = baseline * 0.85;
-        if (ear < closedThresh) {
-          earBelowFramesRef.current += 1;
-          if (earBelowFramesRef.current >= 2 && !earWasLowRef.current) {
-            earWasLowRef.current = true;
-          }
-        } else {
-          earBelowFramesRef.current = 0;
-          if (ear > openThresh && earWasLowRef.current) {
-            earWasLowRef.current = false;
-            blinksRef.current += 1;
-            setBlinks(blinksRef.current);
-          }
-        }
-      }
 
       // Progress + completion
       const elapsed = performance.now() - scanStartRef.current;
@@ -734,16 +729,19 @@ export function FaceScanner({
   function finalize(avg: EdgeScoreBreakdown, _skippedLiveness: boolean) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
+    playSfx("matchStart");
     setPhase("computing");
 
-    // Capture the current frame to a JPEG data URL.
+    // Capture the current frame to a small JPEG data URL. 200x150 @ 0.7
+    // is typically 8-15KB which fits comfortably in KV-backed profile
+    // sync, so the captured face survives cross-device sign-in.
     const video = videoRef.current!;
     const cap = captureRef.current!;
-    cap.width = 320;
-    cap.height = 240;
+    cap.width = 200;
+    cap.height = 150;
     const cctx = cap.getContext("2d")!;
     cctx.drawImage(video, 0, 0, cap.width, cap.height);
-    const faceDataUrl = cap.toDataURL("image/jpeg", 0.85);
+    const faceDataUrl = cap.toDataURL("image/jpeg", 0.7);
 
     // Brief dramatic pause so the "computing" UI registers.
     setTimeout(() => {
@@ -853,10 +851,8 @@ export function FaceScanner({
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/50">
             <span>Scanning</span>
             <span>
-              {Math.round(progress * 100)}% · Blinks {blinks}/1 · EAR{" "}
-              <span className="font-mono text-white/80">
-                {liveEar.toFixed(2)}
-              </span>
+              {Math.round(progress * 100)}% · Liveness {blinks ? "✓" : "—"}
+              <span className="ml-2 font-mono text-white/40">EAR {liveEar.toFixed(2)}</span>
             </span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-white/5">
@@ -865,9 +861,9 @@ export function FaceScanner({
               style={{ width: `${progress * 100}%` }}
             />
           </div>
-          {progress >= 0.99 && blinks === 0 && (
+          {progress >= 0.4 && blinks === 0 && (
             <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
-              <span>Trouble detecting blinks?</span>
+              <span>Turn your head left & right ↔</span>
               <button
                 onClick={() => liveScore && finalize(liveScore, true)}
                 className="rounded-md border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"

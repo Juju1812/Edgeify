@@ -1,45 +1,82 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { rankFromElo } from "@/lib/rank";
-import type { SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
+
+type Entry = {
+  username: string;
+  elo: number;
+  wins: number;
+  losses: number;
+  edgeScore: number;
+  faceDataUrl: string | null;
+};
 
 export default function LeaderboardPage() {
   const { user, status } = useUser();
   const [query, setQuery] = useState("");
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // No more seed-user padding — the leaderboard now reflects real
-  // Edgify users only. Until we wire up server-side ranking storage,
-  // that means just the current device's user (when ranked + visible).
-  // Bots are kept out of the public board on purpose.
-  const all = useMemo<SeedUser[]>(() => {
-    const list: SeedUser[] = [];
-    if (status === "ranked" && user.username && !user.hideFromBoard) {
-      list.push({
-        id: "me",
-        username: user.username,
-        countryCode: "??",
-        elo: user.elo,
-        wins: user.wins,
-        losses: user.losses,
-        edgeScore: user.edgeScore?.composite ?? 50
-      });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/leaderboard");
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!cancelled) setEntries(data.entries || []);
+      } catch {
+        if (!cancelled) setEntries([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // If our local profile is fresher than what the server has, our entry
+  // might be slightly stale. Patch the local entry in-memory so the
+  // user always sees their own latest stats at the right rank.
+  const all = useMemo<Entry[]>(() => {
+    if (
+      status !== "ranked" ||
+      !user.username ||
+      user.hideFromBoard ||
+      !user.hasScanned
+    ) {
+      return entries;
     }
-    return list.sort((a, b) => b.elo - a.elo);
-  }, [user, status]);
-
-  const filtered = useMemo(() => {
-    return all.filter((u) => {
-      if (query && !u.username.toLowerCase().includes(query.toLowerCase()))
-        return false;
-      return true;
+    const rest = entries.filter(
+      (e) => e.username.toLowerCase() !== user.username!.toLowerCase()
+    );
+    rest.push({
+      username: user.username,
+      elo: user.elo,
+      wins: user.wins,
+      losses: user.losses,
+      edgeScore: Math.round(user.edgeScore?.composite ?? 50),
+      faceDataUrl: user.faceDataUrl
     });
-  }, [all, query]);
+    return rest.sort((a, b) => b.elo - a.elo);
+  }, [entries, user, status]);
 
-  const myIndex = all.findIndex((u) => u.id === "me");
+  const filtered = useMemo(
+    () =>
+      all.filter(
+        (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
+      ),
+    [all, query]
+  );
+
+  const myIndex = all.findIndex(
+    (u) => u.username.toLowerCase() === user.username?.toLowerCase()
+  );
   const myRank = myIndex >= 0 ? myIndex + 1 : null;
 
   return (
@@ -56,7 +93,7 @@ export default function LeaderboardPage() {
           <p className="label-xs">Season 1</p>
           <h1 className="heading-card mt-2 text-3xl">Global Rank</h1>
           <p className="mt-1 text-sm text-white/50">
-            Top {filtered.length} Adams
+            {loading ? "Loading…" : `Top ${all.length} Adams`}
           </p>
         </div>
         {myRank !== null && (
@@ -79,7 +116,7 @@ export default function LeaderboardPage() {
         </div>
       )}
 
-      {all.length === 0 ? (
+      {!loading && all.length === 0 ? (
         <div className="glass mt-6 rounded-2xl px-6 py-16 text-center">
           <div className="text-5xl">👑</div>
           <h2 className="heading-card mt-4 text-2xl">No ranked players yet</h2>
@@ -103,17 +140,22 @@ export default function LeaderboardPage() {
             <span className="text-right">Score</span>
             <span className="text-right">ELO</span>
           </div>
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="px-5 py-12 text-center text-sm text-white/40">
+              Loading global rankings…
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="px-5 py-12 text-center text-sm text-white/40">
               No matches.
             </div>
           ) : (
             filtered.map((u, i) => {
               const rank = rankFromElo(u.elo);
-              const isMe = u.id === "me";
+              const isMe =
+                user.username?.toLowerCase() === u.username.toLowerCase();
               return (
                 <div
-                  key={u.id}
+                  key={u.username}
                   className={
                     "grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.02] px-5 py-3 text-sm transition " +
                     (isMe ? "bg-mog-violet/10" : "hover:bg-white/[0.02]")
@@ -121,7 +163,7 @@ export default function LeaderboardPage() {
                 >
                   <span className="font-mono text-white/40">#{i + 1}</span>
                   <div className="flex items-center gap-3 truncate">
-                    <Avatar name={u.username} />
+                    <Avatar name={u.username} faceDataUrl={u.faceDataUrl} />
                     <div className="min-w-0">
                       <p className="truncate font-semibold uppercase tracking-[0.16em] text-white">
                         {u.username}
@@ -160,9 +202,24 @@ export default function LeaderboardPage() {
   );
 }
 
-function Avatar({ name }: { name: string }) {
+function Avatar({
+  name,
+  faceDataUrl
+}: {
+  name: string;
+  faceDataUrl: string | null;
+}) {
+  if (faceDataUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={faceDataUrl}
+        alt=""
+        className="h-9 w-9 shrink-0 rounded-lg border border-white/10 object-cover"
+      />
+    );
+  }
   const initials = name.replace(/[0-9]+$/g, "").slice(0, 2).toUpperCase();
-  // Stable color from name hash
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   const hue = h % 360;

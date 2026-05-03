@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Footer } from "@/components/Footer";
 import { rankFromElo } from "@/lib/rank";
 import { useUser } from "@/lib/user-context";
+import { ACHIEVEMENTS, unlockedAchievements } from "@/lib/achievements";
 
 export default function ProfilePage() {
   const { user, status, ready, update, deleteAccount } = useUser();
@@ -86,6 +87,32 @@ export default function ProfilePage() {
           <Stat label="Win rate" value={`${winRate}%`} />
           <Stat label="Win streak" value={user.streak} />
           <Stat label="Peak ELO" value={user.peakElo} />
+        </div>
+      </div>
+
+      <div className="mt-10">
+        <h2 className="label-xs mb-3">
+          Achievements ({unlockedAchievements(user).length}/{ACHIEVEMENTS.length})
+        </h2>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+          {ACHIEVEMENTS.map((a) => {
+            const unlocked = a.check(user);
+            return (
+              <div
+                key={a.id}
+                title={`${a.name}\n${a.description}`}
+                className={
+                  "glass flex aspect-square flex-col items-center justify-center rounded-xl p-2 text-center transition " +
+                  (unlocked ? "" : "opacity-25 grayscale")
+                }
+              >
+                <span className="text-2xl">{a.emoji}</span>
+                <p className="mt-1 truncate text-[9px] uppercase tracking-[0.2em] text-white/70">
+                  {a.name}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
