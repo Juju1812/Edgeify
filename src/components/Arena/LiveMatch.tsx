@@ -209,6 +209,16 @@ export function LiveMatch({
   const [reactions, setReactions] = useState<ReactionPing[]>([]);
   const reactionIdRef = useRef(0);
 
+  // Mic toggle — enables/disables our audio track. Opponent's stream
+  // already includes audio if their mic is on (handled by their video el).
+  const [micOn, setMicOn] = useState(false);
+  function toggleMic() {
+    const next = !micOn;
+    setMicOn(next);
+    const stream = localStreamRef.current;
+    stream?.getAudioTracks().forEach((t) => (t.enabled = next));
+  }
+
   // Edge Boost — armed before queuing, applies +10% to my round scores.
   const [boostArmed, setBoostArmed] = useState(false);
   const boostArmedRef = useRef(false);
@@ -286,6 +296,8 @@ export function LiveMatch({
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+        // Mute mic by default — user toggles it on in the live match.
+        stream.getAudioTracks().forEach((t) => (t.enabled = false));
         localStreamRef.current = stream;
         // Don't attach the stream to a video element here — there is no
         // hidden source video anymore. The visible PlayerTile mounts
@@ -1071,6 +1083,8 @@ export function LiveMatch({
           criterionLabel={ROUND_CRITERIA[round]?.label || ""}
           reactions={reactions}
           onReact={sendReaction}
+          micOn={micOn}
+          onMicToggle={toggleMic}
         />
       )}
 
@@ -1327,7 +1341,9 @@ function Arena({
   scoreboard,
   criterionLabel,
   reactions,
-  onReact
+  onReact,
+  micOn,
+  onMicToggle
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1341,6 +1357,8 @@ function Arena({
   criterionLabel: string;
   reactions: ReactionPing[];
   onReact: (emoji: string) => void;
+  micOn: boolean;
+  onMicToggle: () => void;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1437,8 +1455,21 @@ function Arena({
         />
       )}
 
-      {/* Emoji reaction bar */}
+      {/* Emoji reaction bar + mic toggle */}
       <div className="mt-3 flex items-center justify-center gap-2">
+        <button
+          onClick={onMicToggle}
+          className={
+            "rounded-full border px-3 py-1.5 text-lg transition active:scale-95 " +
+            (micOn
+              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
+              : "border-white/10 bg-white/[0.03] text-white/50")
+          }
+          aria-label={micOn ? "Mic on" : "Mic off"}
+          title={micOn ? "Mic on — opponent hears you" : "Mic off — tap to talk"}
+        >
+          {micOn ? "🎙️" : "🔇"}
+        </button>
         {REACTION_EMOJIS.map((e) => (
           <button
             key={e}
@@ -1753,6 +1784,9 @@ function Result({
 
 // ─── Camera helper (mirror of FaceScanner's chain) ────────────────────
 async function getCameraStream(): Promise<MediaStream> {
+  // Live match requests audio too, but we MUTE the local track by
+  // default and let the user toggle their mic on. The remote video
+  // element renders the audio so opponents come through automatically.
   const attempts: MediaStreamConstraints[] = [
     {
       video: {
@@ -1760,9 +1794,14 @@ async function getCameraStream(): Promise<MediaStream> {
         height: { ideal: 480 },
         facingMode: { ideal: "user" }
       },
-      audio: false
+      audio: { echoCancellation: true, noiseSuppression: true }
     },
-    { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+    {
+      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: { echoCancellation: true, noiseSuppression: true }
+    },
+    { video: true, audio: true },
+    // Last resort if the user denies mic but allows camera.
     { video: true, audio: false }
   ];
   let lastErr: unknown = new Error("No camera available.");
