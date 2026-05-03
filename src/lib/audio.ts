@@ -5,6 +5,11 @@
  */
 
 let ctx: AudioContext | null = null;
+let masterVolume = 0.7;
+
+export function setSoundVolume(v: number) {
+  masterVolume = Math.max(0, Math.min(1, v));
+}
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -41,9 +46,11 @@ function tone({
   attack = 0.005,
   release = 0.06
 }: ToneOpts) {
+  if (masterVolume <= 0) return;
   const ac = getCtx();
   if (!ac) return;
   if (ac.state === "suspended") void ac.resume();
+  volume *= masterVolume;
   const start = ac.currentTime + startAt;
   const end = start + duration;
 

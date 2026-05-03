@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import {
   currentSeason,
   levelFromXp,
+  POWERUP_META,
   rewardAtLevel,
   xpForLevel
 } from "@/lib/season";
@@ -221,7 +222,7 @@ export default function SeasonPage() {
 
 function RewardChip({
   reward,
-  reached
+  reached: _reached
 }: {
   reward: ReturnType<typeof rewardAtLevel>;
   reached: boolean;
@@ -231,6 +232,14 @@ function RewardChip({
     return (
       <span className="text-[18px]" title="Edge Boost">
         ⚡
+      </span>
+    );
+  }
+  if (reward.kind === "powerUp") {
+    const meta = POWERUP_META[reward.powerUp];
+    return (
+      <span className="text-[18px]" title={meta.name}>
+        {meta.emoji}
       </span>
     );
   }
@@ -244,7 +253,7 @@ function RewardChip({
   return (
     <span
       className="text-[18px]"
-      style={{ color: reached ? reward.color : "currentColor" }}
+      style={{ color: _reached ? reward.color : "currentColor" }}
       title={`${reward.frame} frame`}
     >
       ◆

@@ -13,8 +13,14 @@ import { DEFAULT_USER, getStatus, type UserState, type UserStatus } from "./type
 import {
   applyInactivityDecay,
   checkSeasonRollover,
+  levelFromXp,
+  POWERUP_META,
+  rewardAtLevel,
   tickDailyStreak
 } from "./season";
+import { useToast } from "./toast-context";
+import { ACHIEVEMENTS } from "./achievements";
+import { setSoundVolume } from "./audio";
 
 const STORAGE_KEY = "edgify:user:v1";
 const TOKEN_KEY = "edgify:auth:token:v1";
@@ -88,6 +94,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const lastSyncedRef = useRef<string>("");
   const syncTimerRef = useRef<number | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
+  const lastLevelRef = useRef(0);
+  const lastAchievementsRef = useRef<Set<string>>(new Set());
+  const { toast } = useToast();
 
   // Load from local storage on mount, then check for an existing session.
   useEffect(() => {
@@ -140,6 +149,42 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (ready) saveToStorage(user);
   }, [user, ready]);
+
+  // Keep audio module in sync with the user's volume preference.
+  useEffect(() => {
+    if (typeof user.soundVolume === "number") setSoundVolume(user.soundVolume);
+  }, [user.soundVolume]);
+
+  // Detect level-ups + new achievements and surface as toasts.
+  useEffect(() => {
+    if (!ready || !user.username) return;
+    const lvl = levelFromXp(user.seasonXp);
+    if (lastLevelRef.current === 0) {
+      lastLevelRef.current = lvl;
+      // Initial achievements snapshot — don't toast existing ones on first load
+      for (const a of ACHIEVEMENTS) {
+        if (a.check(user)) lastAchievementsRef.current.add(a.id);
+      }
+      return;
+    }
+    if (lvl > lastLevelRef.current) {
+      const reward = rewardAtLevel(lvl);
+      let extra = "";
+      if (reward?.kind === "edgeBoost") extra = " · ⚡ Edge Boost";
+      else if (reward?.kind === "powerUp")
+        extra = ` · ${POWERUP_META[reward.powerUp].emoji} ${POWERUP_META[reward.powerUp].name}`;
+      else if (reward?.kind === "title") extra = ` · "${reward.title}"`;
+      else if (reward?.kind === "frame") extra = ` · ${reward.frame} frame`;
+      toast(`Level ${lvl}!${extra}`, { kind: "success", emoji: "✨", ttl: 5000 });
+      lastLevelRef.current = lvl;
+    }
+    for (const a of ACHIEVEMENTS) {
+      if (a.check(user) && !lastAchievementsRef.current.has(a.id)) {
+        lastAchievementsRef.current.add(a.id);
+        toast(`${a.name} unlocked`, { kind: "success", emoji: a.emoji, ttl: 5000 });
+      }
+    }
+  }, [user, ready, toast]);
 
   // While authed, ping the server every 30s so /api/stats can count us
   // as online. Stop pinging on logout / unmount.

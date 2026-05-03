@@ -10,6 +10,20 @@ export type EdgeScoreBreakdown = {
 
 export type GameMode = "bo3" | "bo5" | "sudden-death" | "rapid-fire";
 
+export type PowerUpId = "boost" | "shield" | "mulligan" | "timeStop" | "critical";
+
+export type ThemeId = "default" | "minimal" | "cyberpunk";
+export type ArColorId = "green" | "cyan" | "pink" | "gold" | "violet";
+
+export type LifetimeStats = {
+  matchesPlayed: number;
+  totalXp: number;
+  totalBoostsUsed: number;
+  facesScanned: number;
+  longestStreak: number;
+  peakEloEver: number;
+};
+
 export type MatchRecord = {
   id: string;
   opponentName: string;
@@ -78,6 +92,9 @@ export type UserState = {
   /** Inventory of unactivated boosts. Earned via the season pass. */
   edgeBoosts: number;
 
+  // ─── Other power-ups (Shield, Mulligan, TimeStop, Critical) ─
+  powerUps: Partial<Record<PowerUpId, number>>;
+
   // ─── Daily streak ─────────────────────────────────────────────
   /** Current consecutive-day login streak. */
   dailyStreak: number;
@@ -92,6 +109,26 @@ export type UserState = {
   // ─── Social / safety ─────────────────────────────────────────
   blockedUsers: string[];
   friends: string[];
+
+  // ─── Profile / customization ────────────────────────────────
+  email: string | null;
+  countryCode: string | null;        // ISO-3166 alpha-2
+  bio: string;                       // 140 char public bio
+  pinnedMatchIds: string[];          // up to 3 pinned matches
+  arColor: ArColorId;
+  theme: ThemeId;
+  customEmojis: string[];            // 6 reaction emojis
+  soundVolume: number;               // 0..1
+  micDefault: boolean;
+  privacyBlur: boolean;              // background blur in live match
+  pushEnabled: boolean;
+
+  // ─── Lifetime stats (persists across season rollovers) ─────
+  lifetime: LifetimeStats;
+
+  // ─── Onboarding ─────────────────────────────────────────────
+  tutorialCompleted: boolean;
+  changelogSeenVersion: string;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -114,12 +151,34 @@ export const DEFAULT_USER: UserState = {
   seasonXp: 0,
   claimedLevel: 0,
   edgeBoosts: 0,
+  powerUps: {},
   dailyStreak: 0,
   dailyStreakDay: 0,
   lastActiveAt: 0,
   promo: null,
   blockedUsers: [],
-  friends: []
+  friends: [],
+  email: null,
+  countryCode: null,
+  bio: "",
+  pinnedMatchIds: [],
+  arColor: "green",
+  theme: "default",
+  customEmojis: ["🔥", "💀", "👑", "😂", "🗿", "🤡"],
+  soundVolume: 0.7,
+  micDefault: false,
+  privacyBlur: false,
+  pushEnabled: false,
+  lifetime: {
+    matchesPlayed: 0,
+    totalXp: 0,
+    totalBoostsUsed: 0,
+    facesScanned: 0,
+    longestStreak: 0,
+    peakEloEver: 0
+  },
+  tutorialCompleted: false,
+  changelogSeenVersion: ""
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";

@@ -1,6 +1,7 @@
 import type {
   GameMode,
   MatchRecord,
+  PowerUpId,
   PromoSeries,
   SeasonInfo,
   UserState
@@ -76,13 +77,31 @@ export function xpForMatch(
 
 export type Reward =
   | { kind: "edgeBoost"; count: number }
+  | { kind: "powerUp"; powerUp: PowerUpId; count: number }
   | { kind: "title"; title: string }
   | { kind: "frame"; frame: string; color: string };
 
 /** Reward at level N (1-indexed). Levels with no special reward give nothing. */
 export function rewardAtLevel(level: number): Reward | null {
-  // Edge Boost every 3 levels.
-  if (level % 3 === 0) return { kind: "edgeBoost", count: 1 };
+  // Power-up rotation by level mod 5 (excluding levels with frame/title rewards):
+  //   L3, L8, L13, L18 ... give rotating powerups.
+  if (level % 5 === 3) {
+    const powerUpRotation: PowerUpId[] = [
+      "boost",
+      "shield",
+      "mulligan",
+      "timeStop",
+      "critical"
+    ];
+    const idx = Math.floor(level / 5) % powerUpRotation.length;
+    const id = powerUpRotation[idx];
+    if (id === "boost") return { kind: "edgeBoost", count: 1 };
+    return { kind: "powerUp", powerUp: id, count: 1 };
+  }
+  // Plain Edge Boosts on the other "every 3 levels" cadence
+  if (level % 3 === 0 && level % 5 !== 3) {
+    return { kind: "edgeBoost", count: 1 };
+  }
   // Title milestones
   const titles: Record<number, string> = {
     5: "Climber",
@@ -104,6 +123,37 @@ export function rewardAtLevel(level: number): Reward | null {
   return null;
 }
 
+export const POWERUP_META: Record<
+  PowerUpId,
+  { name: string; emoji: string; description: string }
+> = {
+  boost: {
+    name: "Edge Boost",
+    emoji: "⚡",
+    description: "+10% to all your scores this match"
+  },
+  shield: {
+    name: "Shield",
+    emoji: "🛡️",
+    description: "Caps your opponent's round score at 80 in one round"
+  },
+  mulligan: {
+    name: "Mulligan",
+    emoji: "🔄",
+    description: "Re-do one round if you score below 50"
+  },
+  timeStop: {
+    name: "Time Stop",
+    emoji: "⏱️",
+    description: "+2 seconds on your scan window each round"
+  },
+  critical: {
+    name: "Critical Hit",
+    emoji: "💥",
+    description: "50% chance to double a random round (opponent gets same chance)"
+  }
+};
+
 /**
  * Apply unclaimed level-up rewards into the user state. Called whenever
  * XP changes; idempotent — only claims levels above prev.claimedLevel.
@@ -112,11 +162,18 @@ export function applyLevelRewards(prev: UserState): Partial<UserState> {
   const lvl = levelFromXp(prev.seasonXp);
   if (lvl <= prev.claimedLevel) return {};
   let edgeBoosts = prev.edgeBoosts;
+  const powerUps: Partial<Record<PowerUpId, number>> = { ...prev.powerUps };
   for (let l = prev.claimedLevel + 1; l <= lvl; l++) {
     const reward = rewardAtLevel(l);
-    if (reward?.kind === "edgeBoost") edgeBoosts += reward.count;
+    if (!reward) continue;
+    if (reward.kind === "edgeBoost") {
+      edgeBoosts += reward.count;
+    } else if (reward.kind === "powerUp") {
+      powerUps[reward.powerUp] =
+        (powerUps[reward.powerUp] || 0) + reward.count;
+    }
   }
-  return { claimedLevel: lvl, edgeBoosts };
+  return { claimedLevel: lvl, edgeBoosts, powerUps };
 }
 
 // ─── Daily streak ─────────────────────────────────────────────────────
@@ -269,9 +326,15 @@ export function applyMatchResult(
   // Practice doesn't move ELO or fill placement matches.
   if (practice) {
     const xpGain = xpForMatch(won, prev.streak, true, mode);
+    const newLifetime = {
+      ...prev.lifetime,
+      matchesPlayed: prev.lifetime.matchesPlayed + 1,
+      totalXp: prev.lifetime.totalXp + xpGain
+    };
     const next = {
       seasonXp: prev.seasonXp + xpGain,
-      matchHistory: [{ ...record, practice: true }, ...prev.matchHistory].slice(0, 50)
+      matchHistory: [{ ...record, practice: true }, ...prev.matchHistory].slice(0, 50),
+      lifetime: newLifetime
     };
     const lvl = applyLevelRewards({ ...prev, ...next });
     return { ...next, ...lvl };
@@ -283,6 +346,14 @@ export function applyMatchResult(
   const newStreak = won ? prev.streak + 1 : 0;
   const xpGain = xpForMatch(won, newStreak, false, mode);
 
+  const newLifetime = {
+    ...prev.lifetime,
+    matchesPlayed: prev.lifetime.matchesPlayed + 1,
+    totalXp: prev.lifetime.totalXp + xpGain,
+    longestStreak: Math.max(prev.lifetime.longestStreak, newStreak),
+    peakEloEver: Math.max(prev.lifetime.peakEloEver, newElo)
+  };
+
   const base: Partial<UserState> = {
     elo: newElo,
     peakElo: Math.max(prev.peakElo, newElo),
@@ -292,7 +363,8 @@ export function applyMatchResult(
     placementsLeft: Math.max(0, prev.placementsLeft - 1),
     seasonXp: prev.seasonXp + xpGain,
     matchHistory: [record, ...prev.matchHistory].slice(0, 50),
-    promo: promoPatch.promo as PromoSeries | null | undefined ?? prev.promo
+    promo: promoPatch.promo as PromoSeries | null | undefined ?? prev.promo,
+    lifetime: newLifetime
   };
 
   const lvl = applyLevelRewards({ ...prev, ...base });
