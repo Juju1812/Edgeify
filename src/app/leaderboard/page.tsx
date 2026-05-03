@@ -3,23 +3,21 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Footer } from "@/components/Footer";
-import { flagFor } from "@/lib/flag";
 import { rankFromElo } from "@/lib/rank";
-import { SEED_USERS, type SeedUser } from "@/lib/seed-users";
+import type { SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
 
 export default function LeaderboardPage() {
   const { user, status } = useUser();
   const [query, setQuery] = useState("");
-  const [region, setRegion] = useState<string>("ALL");
 
+  // No more seed-user padding — the leaderboard now reflects real
+  // EdgeIfy users only. Until we wire up server-side ranking storage,
+  // that means just the current device's user (when ranked + visible).
+  // Bots are kept out of the public board on purpose.
   const all = useMemo<SeedUser[]>(() => {
-    const list: SeedUser[] = [...SEED_USERS];
-    if (
-      status === "ranked" &&
-      user.username &&
-      !user.hideFromBoard
-    ) {
+    const list: SeedUser[] = [];
+    if (status === "ranked" && user.username && !user.hideFromBoard) {
       list.push({
         id: "me",
         username: user.username,
@@ -35,20 +33,14 @@ export default function LeaderboardPage() {
 
   const filtered = useMemo(() => {
     return all.filter((u) => {
-      if (region !== "ALL" && u.countryCode !== region) return false;
       if (query && !u.username.toLowerCase().includes(query.toLowerCase()))
         return false;
       return true;
     });
-  }, [all, region, query]);
+  }, [all, query]);
 
   const myIndex = all.findIndex((u) => u.id === "me");
   const myRank = myIndex >= 0 ? myIndex + 1 : null;
-
-  const regions = useMemo(() => {
-    const set = new Set(SEED_USERS.map((u) => u.countryCode));
-    return ["ALL", ...Array.from(set).sort()];
-  }, []);
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 pt-10 pb-16">
@@ -75,94 +67,93 @@ export default function LeaderboardPage() {
         )}
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search username…"
-          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white placeholder:text-white/30 outline-none focus:border-mog-violet"
-        />
-        <select
-          value={region}
-          onChange={(e) => setRegion(e.target.value)}
-          className="rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white outline-none focus:border-mog-violet"
-        >
-          {regions.map((r) => (
-            <option key={r} value={r}>
-              {r === "ALL" ? "All regions" : `${flagFor(r)} ${r}`}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="glass mt-6 overflow-hidden rounded-2xl">
-        <div className="grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.04] px-5 py-3 text-[10px] uppercase tracking-[0.32em] text-white/40 sm:grid-cols-[3rem_1fr_4rem_5rem_5rem_5rem]">
-          <span>#</span>
-          <span>User</span>
-          <span className="hidden sm:inline">Region</span>
-          <span className="text-right">W/L</span>
-          <span className="text-right">Score</span>
-          <span className="text-right">ELO</span>
+      {all.length > 0 && (
+        <div className="mt-6 flex flex-wrap gap-3">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search username…"
+            className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white placeholder:text-white/30 outline-none focus:border-mog-violet"
+          />
         </div>
-        {filtered.length === 0 ? (
-          <div className="px-5 py-12 text-center text-sm text-white/40">
-            No matches.
+      )}
+
+      {all.length === 0 ? (
+        <div className="glass mt-6 rounded-2xl px-6 py-16 text-center">
+          <div className="text-5xl">👑</div>
+          <h2 className="heading-card mt-4 text-2xl">No ranked players yet</h2>
+          <p className="mx-auto mt-3 max-w-md text-sm text-white/50">
+            Be the first to climb the EdgeIfy leaderboard. Calibrate in The Lab,
+            finish your 5 placement matches, and you&apos;ll appear here.
+          </p>
+          <Link
+            href="/lab"
+            className="mt-6 inline-block rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+          >
+            Open The Lab →
+          </Link>
+        </div>
+      ) : (
+        <div className="glass mt-6 overflow-hidden rounded-2xl">
+          <div className="grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.04] px-5 py-3 text-[10px] uppercase tracking-[0.32em] text-white/40">
+            <span>#</span>
+            <span>User</span>
+            <span className="text-right">W/L</span>
+            <span className="text-right">Score</span>
+            <span className="text-right">ELO</span>
           </div>
-        ) : (
-          filtered.map((u, i) => {
-            const rank = rankFromElo(
-              u.elo,
-              all.findIndex((x) => x.id === u.id) + 1
-            );
-            const isMe = u.id === "me";
-            return (
-              <div
-                key={u.id}
-                className={
-                  "grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.02] px-5 py-3 text-sm transition sm:grid-cols-[3rem_1fr_4rem_5rem_5rem_5rem] " +
-                  (isMe
-                    ? "bg-mog-violet/10"
-                    : "hover:bg-white/[0.02]")
-                }
-              >
-                <span className="font-mono text-white/40">#{i + 1}</span>
-                <div className="flex items-center gap-3 truncate">
-                  <Avatar name={u.username} />
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold uppercase tracking-[0.16em] text-white">
-                      {u.username}
-                      {isMe && (
-                        <span className="ml-2 rounded-full bg-mog-violet/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-mog-violet">
-                          YOU
-                        </span>
-                      )}
-                    </p>
-                    <p
-                      className="text-[10px] uppercase tracking-[0.22em]"
-                      style={{ color: rank.color }}
-                    >
-                      <span aria-hidden>{rank.emoji}</span> {rank.label}
-                    </p>
+          {filtered.length === 0 ? (
+            <div className="px-5 py-12 text-center text-sm text-white/40">
+              No matches.
+            </div>
+          ) : (
+            filtered.map((u, i) => {
+              const rank = rankFromElo(u.elo);
+              const isMe = u.id === "me";
+              return (
+                <div
+                  key={u.id}
+                  className={
+                    "grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.02] px-5 py-3 text-sm transition " +
+                    (isMe ? "bg-mog-violet/10" : "hover:bg-white/[0.02]")
+                  }
+                >
+                  <span className="font-mono text-white/40">#{i + 1}</span>
+                  <div className="flex items-center gap-3 truncate">
+                    <Avatar name={u.username} />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold uppercase tracking-[0.16em] text-white">
+                        {u.username}
+                        {isMe && (
+                          <span className="ml-2 rounded-full bg-mog-violet/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-mog-violet">
+                            YOU
+                          </span>
+                        )}
+                      </p>
+                      <p
+                        className="text-[10px] uppercase tracking-[0.22em]"
+                        style={{ color: rank.color }}
+                      >
+                        <span aria-hidden>{rank.emoji}</span> {rank.label}
+                      </p>
+                    </div>
                   </div>
+                  <span className="text-right text-xs text-white/60">
+                    {u.wins}/{u.losses}
+                  </span>
+                  <span className="text-right font-mono text-xs text-white/80">
+                    {Math.round(u.edgeScore)}
+                  </span>
+                  <span className="text-right font-semibold text-cyan-300">
+                    {u.elo}
+                  </span>
                 </div>
-                <span className="hidden text-base sm:inline">
-                  {u.countryCode === "??" ? "🌐" : flagFor(u.countryCode)}
-                </span>
-                <span className="text-right text-xs text-white/60">
-                  {u.wins}/{u.losses}
-                </span>
-                <span className="text-right font-mono text-xs text-white/80">
-                  {Math.round(u.edgeScore)}
-                </span>
-                <span className="text-right font-semibold text-cyan-300">
-                  {u.elo}
-                </span>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       <Footer />
     </main>

@@ -47,6 +47,32 @@ type LiveMsg =
   | { type: "result"; winner: "host" | "guest"; myWins: number; oppWins: number }
   | { type: "leave" };
 
+/**
+ * Lightweight AR overlay for the live match — green tracking dots plus
+ * a faint cyan face frame. Drawn manually mirrored (W - x) because the
+ * visible video is CSS-mirrored but the canvas isn't.
+ */
+function drawLiveOverlay(
+  ctx: CanvasRenderingContext2D,
+  points: Pt[],
+  box: { x: number; y: number; width: number; height: number },
+  W: number
+) {
+  // Face frame
+  ctx.strokeStyle = "rgba(34, 211, 238, 0.55)";
+  ctx.lineWidth = 1.5;
+  const bx = W - box.x - box.width;
+  ctx.strokeRect(bx, box.y, box.width, box.height);
+
+  // Tracking dots — bright green
+  ctx.fillStyle = "rgba(74, 222, 128, 0.95)";
+  for (const p of points) {
+    ctx.beginPath();
+    ctx.arc(W - p.x, p.y, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function generateCode(): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let s = "";
@@ -84,8 +110,14 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
 
   // ─── Refs (don't re-render on change) ─────────────────────────────
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  // Opponent stream + video element are captured via callback refs because
+  // the WebRTC stream often arrives BEFORE the visible <video> element is
+  // mounted (we're still in "creating" / "joining" when the call connects).
+  // Storing the stream lets the callback ref attach it later.
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteVideoElRef = useRef<HTMLVideoElement | null>(null);
 
   const peerRef = useRef<InstanceType<PeerJSCtor> | null>(null);
   const dataConnRef = useRef<ReturnType<InstanceType<PeerJSCtor>["connect"]> | null>(null);
@@ -94,6 +126,21 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   const faceApiRef = useRef<FaceApiNS | null>(null);
   const scanRafRef = useRef<number | null>(null);
   const sampleBufferRef = useRef<number[]>([]);
+
+  // Canvas for the AR overlay on the local video tile during scanning.
+  const localOverlayElRef = useRef<HTMLCanvasElement | null>(null);
+
+  const remoteVideoCallback = (el: HTMLVideoElement | null) => {
+    remoteVideoElRef.current = el;
+    if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
+      el.srcObject = remoteStreamRef.current;
+      el.play().catch(() => {});
+    }
+  };
+
+  const localOverlayCallback = (el: HTMLCanvasElement | null) => {
+    localOverlayElRef.current = el;
+  };
 
   // ─── Initialize: load models, open camera ─────────────────────────
   useEffect(() => {
@@ -399,9 +446,11 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   }
 
   function attachRemoteStream(remoteStream: MediaStream) {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      remoteVideoRef.current.play().catch(() => {});
+    remoteStreamRef.current = remoteStream;
+    const el = remoteVideoElRef.current;
+    if (el && el.srcObject !== remoteStream) {
+      el.srcObject = remoteStream;
+      el.play().catch(() => {});
     }
   }
 
@@ -486,6 +535,14 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
         )
         .withFaceLandmarks();
 
+      // Always clear the overlay canvas at the start of each frame; only
+      // re-draw when we have a detection.
+      const overlay = localOverlayElRef.current;
+      const ctx = overlay?.getContext("2d") || null;
+      if (overlay && ctx) {
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+      }
+
       if (det) {
         const points: Pt[] = det.landmarks.positions.map((p) => ({ x: p.x, y: p.y }));
         const score = computeEdgeScore(points);
@@ -494,10 +551,13 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
         // Live indicator (running trimmed mean of recent samples)
         if (sampleBufferRef.current.length >= 5) {
           setLiveMine(
-            Math.round(
-              trimmedMean(sampleBufferRef.current.slice(-15), 0.2)
-            )
+            Math.round(trimmedMean(sampleBufferRef.current.slice(-15), 0.2))
           );
+        }
+
+        // Draw AR overlay (green tracking dots + face frame).
+        if (overlay && ctx) {
+          drawLiveOverlay(ctx, points, det.detection.box, overlay.width);
         }
       }
 
@@ -512,6 +572,9 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
         setLiveMine(finalVal);
         setMyScoreReady({ idx, value: finalVal });
         sendMsg({ type: "score", idx, value: finalVal });
+
+        // Clear the overlay one last time so it doesn't linger.
+        if (overlay && ctx) ctx.clearRect(0, 0, overlay.width, overlay.height);
       }
     };
     tick();
@@ -663,12 +726,13 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       {(phase === "vs" || phase === "scanning" || phase === "between") && (
         <Arena
           mineRef={(el) => {
-            if (el && localStreamRef.current) {
+            if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
               el.srcObject = localStreamRef.current;
               el.play().catch(() => {});
             }
           }}
-          oppRef={remoteVideoRef}
+          oppRef={remoteVideoCallback}
+          overlayRef={localOverlayCallback}
           phase={phase}
           round={round}
           opponent={opponent}
@@ -889,6 +953,7 @@ function Joining({ onCancel }: { onCancel: () => void }) {
 function Arena({
   mineRef,
   oppRef,
+  overlayRef,
   phase,
   round,
   opponent,
@@ -898,7 +963,8 @@ function Arena({
   criterionLabel
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
-  oppRef: React.RefObject<HTMLVideoElement>;
+  oppRef: (el: HTMLVideoElement | null) => void;
+  overlayRef: (el: HTMLCanvasElement | null) => void;
   phase: LivePhase;
   round: number;
   opponent: { username: string; elo: number } | null;
@@ -956,6 +1022,7 @@ function Arena({
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4">
         <PlayerTile
           videoRef={mineRef}
+          overlayRef={overlayRef}
           mirror
           name={user.username || "YOU"}
           rankColor={myRank.color}
@@ -1008,7 +1075,8 @@ function Arena({
 }
 
 function PlayerTile(props: {
-  videoRef: React.RefObject<HTMLVideoElement> | ((el: HTMLVideoElement | null) => void);
+  videoRef: (el: HTMLVideoElement | null) => void;
+  overlayRef?: (el: HTMLCanvasElement | null) => void;
   mirror?: boolean;
   name: string;
   rankColor: string;
@@ -1028,14 +1096,22 @@ function PlayerTile(props: {
     <div
       className={`glass relative overflow-hidden rounded-2xl border-2 transition ${ringColor}`}
     >
-      <div className="aspect-[3/4] w-full bg-black">
+      <div className="relative aspect-[3/4] w-full bg-black">
         <video
-          ref={props.videoRef as React.RefObject<HTMLVideoElement>}
+          ref={props.videoRef}
           playsInline
           muted
           autoPlay
           className={`h-full w-full object-cover ${props.mirror ? "-scale-x-100" : ""}`}
         />
+        {props.overlayRef && (
+          <canvas
+            ref={props.overlayRef}
+            width={640}
+            height={480}
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          />
+        )}
       </div>
       <div className="border-t border-white/[0.04] bg-black/50 px-2 py-2 text-center">
         <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-white">
