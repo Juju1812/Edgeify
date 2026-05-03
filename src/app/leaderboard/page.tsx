@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { rankFromElo } from "@/lib/rank";
+import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
 
 type Entry = {
@@ -13,6 +14,7 @@ type Entry = {
   losses: number;
   edgeScore: number;
   faceDataUrl: string | null;
+  countryCode?: string | null;
 };
 
 export default function LeaderboardPage() {
@@ -61,7 +63,8 @@ export default function LeaderboardPage() {
       wins: user.wins,
       losses: user.losses,
       edgeScore: Math.round(user.edgeScore?.composite ?? 50),
-      faceDataUrl: user.faceDataUrl
+      faceDataUrl: user.faceDataUrl,
+      countryCode: user.countryCode
     });
     return rest.sort((a, b) => b.elo - a.elo);
   }, [entries, user, status]);
@@ -166,6 +169,11 @@ export default function LeaderboardPage() {
                     <Avatar name={u.username} faceDataUrl={u.faceDataUrl} />
                     <div className="min-w-0">
                       <p className="truncate font-semibold uppercase tracking-[0.16em] text-white">
+                        {u.countryCode && (
+                          <span className="mr-2" title={u.countryCode}>
+                            {flagFor(u.countryCode)}
+                          </span>
+                        )}
                         {u.username}
                         {isMe && (
                           <span className="ml-2 rounded-full bg-mog-violet/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-mog-violet">

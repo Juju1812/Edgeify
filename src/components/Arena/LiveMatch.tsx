@@ -56,6 +56,7 @@ type LiveMsg =
   | { type: "score"; idx: number; value: number }      // final score for the round
   | { type: "result"; winner: "host" | "guest"; myWins: number; oppWins: number }
   | { type: "reaction"; emoji: string }                // emoji burst from sender
+  | { type: "chat"; text: string }                     // in-match text chat
   | { type: "leave" };
 
 const DEFAULT_REACTIONS = ["🔥", "💀", "👑", "😂", "🗿", "🤡"];
@@ -230,6 +231,22 @@ export function LiveMatch({
   const [copied, setCopied] = useState(false);
   const [reactions, setReactions] = useState<ReactionPing[]>([]);
   const reactionIdRef = useRef(0);
+
+  // In-match text chat (small, ephemeral; not persisted).
+  const [chatLog, setChatLog] = useState<{ id: number; from: "me" | "opp"; text: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatIdRef = useRef(0);
+  function pushChat(from: "me" | "opp", text: string) {
+    const id = ++chatIdRef.current;
+    setChatLog((prev) => [...prev.slice(-9), { id, from, text }]);
+  }
+  function sendChat() {
+    const t = chatInput.trim().slice(0, 140);
+    if (!t) return;
+    pushChat("me", t);
+    sendMsg({ type: "chat", text: t });
+    setChatInput("");
+  }
 
   // Mic toggle — enables/disables our audio track. Opponent's stream
   // already includes audio if their mic is on (handled by their video el).
@@ -762,6 +779,9 @@ export function LiveMatch({
       case "reaction":
         spawnReaction("opp", msg.emoji);
         break;
+      case "chat":
+        pushChat("opp", String(msg.text || "").slice(0, 140));
+        break;
       case "leave":
         if (phase !== "result") {
           setError("Opponent left the match.");
@@ -1114,6 +1134,10 @@ export function LiveMatch({
           onMicToggle={toggleMic}
           reactionEmojis={user.customEmojis}
           privacyBlur={user.privacyBlur}
+          chatLog={chatLog}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          onSendChat={sendChat}
         />
       )}
 
@@ -1374,7 +1398,11 @@ function Arena({
   micOn,
   onMicToggle,
   reactionEmojis,
-  privacyBlur
+  privacyBlur,
+  chatLog,
+  chatInput,
+  setChatInput,
+  onSendChat
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1392,6 +1420,10 @@ function Arena({
   onMicToggle: () => void;
   reactionEmojis?: string[];
   privacyBlur?: boolean;
+  chatLog: { id: number; from: "me" | "opp"; text: string }[];
+  chatInput: string;
+  setChatInput: (v: string) => void;
+  onSendChat: () => void;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1514,6 +1546,54 @@ function Arena({
             {e}
           </button>
         ))}
+      </div>
+
+      {/* In-match text chat (lightweight, ephemeral) */}
+      <div className="mx-auto mt-3 w-full max-w-md">
+        <div className="glass max-h-32 overflow-y-auto rounded-lg p-2 text-xs">
+          {chatLog.length === 0 ? (
+            <p className="text-center text-[10px] uppercase tracking-[0.22em] text-white/30">
+              Match chat
+            </p>
+          ) : (
+            chatLog.map((m) => (
+              <div
+                key={m.id}
+                className={
+                  "px-2 py-1 " +
+                  (m.from === "me" ? "text-emerald-200" : "text-white/80")
+                }
+              >
+                <span className="mr-2 text-[9px] uppercase tracking-[0.22em] text-white/40">
+                  {m.from === "me" ? "you" : "opp"}
+                </span>
+                {m.text}
+              </div>
+            ))
+          )}
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSendChat();
+          }}
+          className="mt-2 flex gap-2"
+        >
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value.slice(0, 140))}
+            placeholder="Send a message…"
+            maxLength={140}
+            className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white outline-none focus:border-mog-violet"
+          />
+          <button
+            type="submit"
+            disabled={!chatInput.trim()}
+            className="rounded-lg border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 disabled:opacity-40"
+          >
+            Send
+          </button>
+        </form>
       </div>
 
       {phase === "scanning" && (

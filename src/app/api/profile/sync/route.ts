@@ -81,6 +81,8 @@ export async function POST(req: Request) {
           : 50,
       faceDataUrl:
         typeof profile.faceDataUrl === "string" ? profile.faceDataUrl : null,
+      countryCode: typeof profile.countryCode === "string" ? profile.countryCode : null,
+      bio: typeof profile.bio === "string" ? profile.bio.slice(0, 140) : "",
       updatedAt: Date.now()
     };
     await redis.set(lbSummaryKey(username), JSON.stringify(summary), {

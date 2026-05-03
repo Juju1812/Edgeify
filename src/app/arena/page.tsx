@@ -7,10 +7,10 @@ import { Footer } from "@/components/Footer";
 import { LiveMatch } from "@/components/Arena/LiveMatch";
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
-import { applyMatchResult } from "@/lib/season";
+import { applyMatchResult, POWERUP_META } from "@/lib/season";
 import { findOpponent, type SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
-import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
+import type { EdgeScoreBreakdown, GameMode, MatchRecord, PowerUpId } from "@/lib/types";
 
 type Mode = "select" | "quick" | "live";
 
@@ -66,6 +66,17 @@ export default function ArenaPage() {
   const [searchBand, setSearchBand] = useState(100);
   const [boostActive, setBoostActive] = useState(false);
   const [practiceMode, setPracticeMode] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>("bo3");
+  const [armedPowerUps, setArmedPowerUps] = useState<Set<PowerUpId>>(new Set());
+
+  function togglePowerUp(id: PowerUpId) {
+    setArmedPowerUps((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   const [opponent, setOpponent] = useState<SeedUser | null>(null);
   const [oppBreakdown, setOppBreakdown] = useState<EdgeScoreBreakdown | null>(null);
   const [round, setRound] = useState(0);
@@ -283,6 +294,10 @@ export default function ArenaPage() {
               setBoostActive={setBoostActive}
               practiceMode={practiceMode}
               setPracticeMode={setPracticeMode}
+              gameMode={gameMode}
+              setGameMode={setGameMode}
+              armedPowerUps={armedPowerUps}
+              togglePowerUp={togglePowerUp}
             />
           )}
           {phase === "searching" && (
@@ -376,16 +391,38 @@ function Lobby({
   boostActive,
   setBoostActive,
   practiceMode,
-  setPracticeMode
+  setPracticeMode,
+  gameMode,
+  setGameMode,
+  armedPowerUps,
+  togglePowerUp
 }: {
   onStart: () => void;
   boostActive: boolean;
   setBoostActive: (b: boolean) => void;
   practiceMode: boolean;
   setPracticeMode: (b: boolean) => void;
+  gameMode: GameMode;
+  setGameMode: (m: GameMode) => void;
+  armedPowerUps: Set<PowerUpId>;
+  togglePowerUp: (id: PowerUpId) => void;
 }) {
   const { user } = useUser();
   const rank = rankFromElo(user.elo);
+  const modes: { id: GameMode; label: string; sub: string }[] = [
+    { id: "bo3", label: "Best of 3", sub: "Standard" },
+    { id: "bo5", label: "Best of 5", sub: "Long form (+40% XP)" },
+    { id: "sudden-death", label: "Sudden Death", sub: "1 round, all metrics (-40% XP)" },
+    { id: "rapid-fire", label: "Rapid Fire", sub: "60s, highest avg" }
+  ];
+
+  const powerUpInventory: { id: PowerUpId; count: number }[] = [
+    { id: "boost", count: user.edgeBoosts },
+    { id: "shield", count: user.powerUps.shield || 0 },
+    { id: "mulligan", count: user.powerUps.mulligan || 0 },
+    { id: "timeStop", count: user.powerUps.timeStop || 0 },
+    { id: "critical", count: user.powerUps.critical || 0 }
+  ];
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -421,27 +458,63 @@ function Lobby({
         Jawline, Overall). Winner is whoever takes 2 rounds.
       </p>
 
-      {/* Pre-match toggles: Edge Boost + Practice Mode */}
-      <div className="mx-auto mt-6 flex max-w-sm flex-wrap items-center justify-center gap-2">
-        <button
-          onClick={() => user.edgeBoosts > 0 && setBoostActive(!boostActive)}
-          disabled={user.edgeBoosts === 0}
-          className={
-            "rounded-lg border px-4 py-2 text-[11px] uppercase tracking-[0.22em] transition " +
-            (boostActive
-              ? "border-mog-pink bg-mog-pink/20 text-white"
-              : user.edgeBoosts > 0
-                ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
-                : "border-white/10 bg-white/[0.02] text-white/30")
-          }
-          title={
-            user.edgeBoosts === 0
-              ? "Earn Edge Boosts via the Season Pass"
-              : "+10% to your score this match"
-          }
-        >
-          ⚡ {boostActive ? "Boost Armed" : `Edge Boost (${user.edgeBoosts})`}
-        </button>
+      {/* Game mode selector */}
+      <div className="mx-auto mt-6 flex max-w-2xl flex-wrap items-center justify-center gap-2">
+        {modes.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setGameMode(m.id)}
+            className={
+              "rounded-lg border px-3 py-2 text-[11px] uppercase tracking-[0.18em] transition " +
+              (gameMode === m.id
+                ? "border-mog-violet/60 bg-mog-violet/15 text-white"
+                : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20")
+            }
+          >
+            <div>{m.label}</div>
+            <div className="mt-0.5 text-[9px] tracking-[0.16em] text-white/40">
+              {m.sub}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Power-up arming */}
+      <div className="mx-auto mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
+        {powerUpInventory.map(({ id, count }) => {
+          const meta = POWERUP_META[id];
+          const armed =
+            id === "boost" ? boostActive : armedPowerUps.has(id);
+          const ownedHandled = id === "boost" ? user.edgeBoosts > 0 : count > 0;
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                if (!ownedHandled) return;
+                if (id === "boost") setBoostActive(!boostActive);
+                else togglePowerUp(id);
+              }}
+              disabled={!ownedHandled}
+              title={meta.description}
+              className={
+                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] transition " +
+                (armed
+                  ? "border-mog-pink bg-mog-pink/20 text-white"
+                  : ownedHandled
+                    ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
+                    : "border-white/10 bg-white/[0.02] text-white/30")
+              }
+            >
+              <span className="text-base">{meta.emoji}</span>
+              <span>{meta.name}</span>
+              <span className="opacity-60">×{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Practice toggle */}
+      <div className="mx-auto mt-3 flex max-w-sm justify-center">
         <button
           onClick={() => setPracticeMode(!practiceMode)}
           className={

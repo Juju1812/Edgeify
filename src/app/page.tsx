@@ -14,6 +14,7 @@ import {
 } from "@/components/icons";
 import { ModeCard } from "@/components/ModeCard";
 import { SeasonStrip } from "@/components/SeasonStrip";
+import { Tutorial } from "@/components/Tutorial";
 import { SideRail } from "@/components/SideRail";
 import { SignInModal } from "@/components/SignInModal";
 import { SocialRow } from "@/components/SocialRow";
@@ -185,6 +186,7 @@ export default function HomePage() {
       <Footer />
 
       <SignInModal open={signInOpen} onClose={() => setSignInOpen(false)} />
+      <Tutorial />
     </main>
   );
 }

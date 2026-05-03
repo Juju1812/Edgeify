@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useUser } from "@/lib/user-context";
 import { GhostIcon } from "./icons";
+
+const CURRENT_VER = "0.4.0";
 
 export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
   const { user, status, ready, signOut } = useUser();
@@ -49,6 +52,15 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
                 </span>
               )}
             </p>
+            {user.changelogSeenVersion !== CURRENT_VER && (
+              <Link
+                href="/whats-new"
+                className="rounded-md border border-mog-pink/40 bg-mog-pink/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.24em] text-mog-pink transition hover:bg-mog-pink/20"
+                title="See what's new"
+              >
+                🔔 New
+              </Link>
+            )}
             <button
               onClick={signOut}
               className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.24em] text-white/60 transition hover:border-white/20 hover:text-white"

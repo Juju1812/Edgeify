@@ -31,7 +31,8 @@ export async function GET() {
       wins: obj.wins || 0,
       losses: obj.losses || 0,
       edgeScore: obj.edgeScore || 0,
-      faceDataUrl: obj.faceDataUrl || null
+      faceDataUrl: obj.faceDataUrl || null,
+      countryCode: obj.countryCode || null
     };
   });
 
