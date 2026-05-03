@@ -30,6 +30,44 @@ export type ScanResult = {
 };
 
 /**
+ * Generate a plausible-looking EdgeScore for the demo path (no working
+ * webcam available). Bell-ish distribution centered around 60. Composite
+ * is the weighted sum so it stays consistent with the real scoring.
+ */
+function syntheticScore(): EdgeScoreBreakdown {
+  const rand = () => (Math.random() + Math.random()) / 2;
+  const symmetry = 0.4 + rand() * 0.5;
+  const jawlineDefinition = 0.35 + rand() * 0.5;
+  const canthalTilt = (Math.random() - 0.4) * 0.8;
+  const cheekboneProm = 0.3 + rand() * 0.55;
+  const goldenRatio = 0.4 + rand() * 0.5;
+  const composite =
+    100 *
+    (0.30 * symmetry +
+      0.25 * jawlineDefinition +
+      0.15 * (1 - Math.abs(canthalTilt - 0.4)) +
+      0.15 * cheekboneProm +
+      0.15 * goldenRatio);
+  return {
+    symmetry,
+    jawlineDefinition,
+    canthalTilt,
+    cheekboneProm,
+    goldenRatio,
+    composite: Math.round(Math.max(0, Math.min(100, composite)))
+  };
+}
+
+/**
+ * 320x240 inline SVG silhouette as a data URL. Used as the "photo" when
+ * the user takes the demo path with no real camera capture.
+ */
+function silhouetteDataUrl(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" width="320" height="240"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#15113d"/><stop offset="100%" stop-color="#070512"/></linearGradient></defs><rect width="320" height="240" fill="url(#g)"/><circle cx="160" cy="92" r="40" fill="#7c3aed" opacity="0.55"/><path d="M82 240 C82 174 116 142 160 142 C204 142 238 174 238 240 Z" fill="#7c3aed" opacity="0.55"/><text x="160" y="222" text-anchor="middle" font-family="monospace" font-size="11" fill="rgba(255,255,255,0.4)" letter-spacing="3">DEMO MODE</text></svg>`;
+  return `data:image/svg+xml;base64,${typeof window === "undefined" ? "" : btoa(svg)}`;
+}
+
+/**
  * Try a chain of progressively-loosened constraints. Many desktops have
  * webcams that don't expose `facingMode`, so a strict {facingMode:"user"}
  * fails with NotFoundError on hardware that's perfectly capable of front-
@@ -170,6 +208,21 @@ export function FaceScanner({
     rafRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+  }
+
+  /**
+   * Skip the camera entirely and synthesize a plausible score. Lets users
+   * without a working webcam (or who just want a quick look) try out the
+   * rest of the game loop. The reveal screen surfaces this clearly so
+   * nobody mistakes a demo score for a real one.
+   */
+  function takeDemoPath() {
+    stopCamera();
+    setPhase("computing");
+    setTimeout(() => {
+      setPhase("done");
+      onComplete({ score: syntheticScore(), faceDataUrl: silhouetteDataUrl() });
+    }, 700);
   }
 
   useEffect(() => stopCamera, []);
@@ -314,12 +367,21 @@ export function FaceScanner({
               landmarks, and compute a geometric score. Nothing leaves your
               device unless you save the result.
             </p>
-            <button
-              onClick={start}
-              className="mt-2 rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
-            >
-              Allow Camera →
-            </button>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={start}
+                className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+              >
+                Allow Camera →
+              </button>
+              <button
+                onClick={takeDemoPath}
+                className="rounded-lg border border-white/10 bg-white/[0.02] px-5 py-3 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+                title="Skip camera and generate a plausible score"
+              >
+                No camera? Demo mode
+              </button>
+            </div>
           </div>
         )}
 
@@ -352,12 +414,20 @@ export function FaceScanner({
             <p className="max-w-lg whitespace-pre-line text-sm leading-relaxed text-white/80">
               {error}
             </p>
-            <button
-              onClick={start}
-              className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-white/10"
-            >
-              Retry
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={start}
+                className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-white/10"
+              >
+                Retry
+              </button>
+              <button
+                onClick={takeDemoPath}
+                className="rounded-lg border border-mog-violet/40 bg-mog-violet/10 px-4 py-2 text-xs uppercase tracking-[0.22em] text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"
+              >
+                Skip & use Demo mode →
+              </button>
+            </div>
           </div>
         )}
       </div>
