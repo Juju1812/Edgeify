@@ -118,7 +118,9 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
   // ─── Refs (don't re-render on change) ─────────────────────────────
-  const localVideoRef = useRef<HTMLVideoElement>(null);
+  // localVideoRef is mutable (assigned from a callback ref), so the type
+  // explicitly includes null for MutableRefObject semantics.
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
   // Opponent stream + video element are captured via callback refs because
