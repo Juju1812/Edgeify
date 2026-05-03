@@ -43,7 +43,8 @@ type LivePhase =
 type LiveMsg =
   | { type: "hello"; username: string; elo: number }
   | { type: "round"; idx: number }
-  | { type: "score"; idx: number; value: number }
+  | { type: "score-tick"; idx: number; value: number } // running score during scan
+  | { type: "score"; idx: number; value: number }      // final score for the round
   | { type: "result"; winner: "host" | "guest"; myWins: number; oppWins: number }
   | { type: "leave" };
 
@@ -547,6 +548,13 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
         setPhase("scanning");
         runScanLoop(msg.idx);
         break;
+      case "score-tick":
+        // Opponent broadcasting their running score — only update the
+        // live indicator if it's for the current round.
+        if (msg.idx === round) {
+          setLiveOpp(msg.value);
+        }
+        break;
       case "score":
         setOppScoreReceived({ idx: msg.idx, value: msg.value });
         setLiveOpp(msg.value);
@@ -592,6 +600,7 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     sampleBufferRef.current = [];
     const start = performance.now();
     const criterion = ROUND_CRITERIA[idx].key;
+    let lastTickSent = 0;
 
     const finishRound = () => {
       const samples = sampleBufferRef.current;
@@ -622,19 +631,8 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       const faceapi = faceApiRef.current;
       const video = localVideoRef.current;
       if (!faceapi || !video || video.readyState < 2) {
-        // Video / models not ready — wait, but the timeout check above
-        // ensures we won't wait past SCAN_MS.
         scanRafRef.current = requestAnimationFrame(tick);
         return;
-      }
-
-      // Always clear the overlay canvas at the start of each frame; only
-      // re-draw when we have a detection. Try/catch in case detection
-      // throws during a disconnect/teardown race.
-      const overlay = localOverlayElRef.current;
-      const ctx = overlay?.getContext("2d") || null;
-      if (overlay && ctx) {
-        ctx.clearRect(0, 0, overlay.width, overlay.height);
       }
 
       try {
@@ -645,6 +643,14 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           )
           .withFaceLandmarks();
 
+        // Clear + draw AFTER await so React reconciliation triggered by
+        // state updates during the await can't wipe the buffer mid-frame.
+        const overlay = localOverlayElRef.current;
+        const ctx = overlay?.getContext("2d") || null;
+        if (overlay && ctx) {
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+        }
+
         if (det) {
           const points: Pt[] = det.landmarks.positions.map((p) => ({
             x: p.x,
@@ -653,10 +659,20 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           const score = computeEdgeScore(points);
           const v = scoreFor(score, criterion);
           sampleBufferRef.current.push(v);
+
           if (sampleBufferRef.current.length >= 5) {
-            setLiveMine(
-              Math.round(trimmedMean(sampleBufferRef.current.slice(-15), 0.2))
+            const liveVal = Math.round(
+              trimmedMean(sampleBufferRef.current.slice(-15), 0.2)
             );
+            setLiveMine(liveVal);
+
+            // Broadcast our running score to the opponent ~5x per second
+            // so they see our number tick up live, not just at round end.
+            const now = performance.now();
+            if (now - lastTickSent > 200) {
+              lastTickSent = now;
+              sendMsg({ type: "score-tick", idx, value: liveVal });
+            }
           }
 
           if (overlay && ctx) {
