@@ -10,6 +10,11 @@ import {
   useState
 } from "react";
 import { DEFAULT_USER, getStatus, type UserState, type UserStatus } from "./types";
+import {
+  applyInactivityDecay,
+  checkSeasonRollover,
+  tickDailyStreak
+} from "./season";
 
 const STORAGE_KEY = "edgify:user:v1";
 const TOKEN_KEY = "edgify:auth:token:v1";
@@ -87,7 +92,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // Load from local storage on mount, then check for an existing session.
   useEffect(() => {
     const local = loadFromStorage();
-    setUser(local);
+    // Apply on-load timers: daily streak tick, inactivity decay, season
+    // rollover. These are all idempotent.
+    setUser((u) => {
+      const merged = { ...local, ...u };
+      const withRollover = { ...merged, ...checkSeasonRollover(merged) };
+      const withStreak = { ...withRollover, ...tickDailyStreak(withRollover) };
+      const withDecay = { ...withStreak, ...applyInactivityDecay(withStreak) };
+      return withDecay;
+    });
 
     const token = loadToken();
     tokenRef.current = token;
@@ -103,8 +116,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             const data = await res.json();
             if (data.profile) {
               const merged = { ...DEFAULT_USER, ...data.profile };
-              setUser(merged);
-              saveToStorage(merged);
+              const withRollover = { ...merged, ...checkSeasonRollover(merged) };
+              const withStreak = { ...withRollover, ...tickDailyStreak(withRollover) };
+              const withDecay = { ...withStreak, ...applyInactivityDecay(withStreak) };
+              setUser(withDecay);
+              saveToStorage(withDecay);
             }
             setAuthedRemote(true);
           } else {

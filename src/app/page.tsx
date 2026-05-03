@@ -13,6 +13,7 @@ import {
   TrophyIcon
 } from "@/components/icons";
 import { ModeCard } from "@/components/ModeCard";
+import { SeasonStrip } from "@/components/SeasonStrip";
 import { SideRail } from "@/components/SideRail";
 import { SignInModal } from "@/components/SignInModal";
 import { SocialRow } from "@/components/SocialRow";
@@ -173,7 +174,11 @@ export default function HomePage() {
         />
       </section>
 
-      <section className="mx-auto mt-14 max-w-[1400px] px-6">
+      <section className="mx-auto mt-10 max-w-[1400px] px-6">
+        <SeasonStrip />
+      </section>
+
+      <section className="mx-auto mt-10 max-w-[1400px] px-6">
         <SocialRow />
       </section>
 

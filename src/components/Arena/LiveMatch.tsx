@@ -11,6 +11,7 @@ import {
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
 import { playSfx, vibrate } from "@/lib/audio";
+import { applyMatchResult } from "@/lib/season";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -206,6 +207,13 @@ export function LiveMatch({
   const [copied, setCopied] = useState(false);
   const [reactions, setReactions] = useState<ReactionPing[]>([]);
   const reactionIdRef = useRef(0);
+
+  // Edge Boost — armed before queuing, applies +10% to my round scores.
+  const [boostArmed, setBoostArmed] = useState(false);
+  const boostArmedRef = useRef(false);
+  useEffect(() => {
+    boostArmedRef.current = boostArmed;
+  }, [boostArmed]);
 
   function spawnReaction(from: "me" | "opp", emoji: string) {
     const id = ++reactionIdRef.current;
@@ -750,6 +758,11 @@ export function LiveMatch({
       } else if (sampleBufferRef.current.length > 0) {
         finalVal = Math.round(trimmedMean(sampleBufferRef.current, 0.15));
       }
+      // Edge Boost: +10% applied at round-end (so score-tick previews
+      // already reflect the boost).
+      if (boostArmedRef.current) {
+        finalVal = Math.min(100, Math.round(finalVal * 1.1));
+      }
       setLiveMine(finalVal);
       setMyScoreReady({ idx, value: finalVal });
       sendMsg({ type: "score", idx, value: finalVal });
@@ -909,7 +922,6 @@ export function LiveMatch({
     if (!opponent) return;
     const isPlacement = user.placementsLeft > 0;
     const delta = eloDelta(user.elo, opponent.elo, won ? 1 : 0, isPlacement);
-    const newElo = Math.max(0, user.elo + delta);
 
     const record: MatchRecord = {
       id: `live-${Date.now()}`,
@@ -919,18 +931,29 @@ export function LiveMatch({
       oppScore: oppWins,
       won,
       eloDelta: delta,
-      playedAt: Date.now()
+      playedAt: Date.now(),
+      rounds: scoreboard.map((r, i) => ({
+        criterion: ROUND_CRITERIA[i]?.label || "?",
+        me: r.me,
+        opp: r.opp
+      })),
+      mode: "bo3"
     };
 
-    update((prev) => ({
-      elo: newElo,
-      peakElo: Math.max(prev.peakElo, newElo),
-      wins: prev.wins + (won ? 1 : 0),
-      losses: prev.losses + (won ? 0 : 1),
-      streak: won ? prev.streak + 1 : 0,
-      placementsLeft: Math.max(0, prev.placementsLeft - 1),
-      matchHistory: [record, ...prev.matchHistory].slice(0, 50)
-    }));
+    update((prev) =>
+      applyMatchResult(prev, {
+        won,
+        rawEloDelta: delta,
+        record,
+        mode: "bo3"
+      })
+    );
+
+    // Consume Edge Boost (one-shot).
+    if (boostArmedRef.current) {
+      update((prev) => ({ edgeBoosts: Math.max(0, prev.edgeBoosts - 1) }));
+      setBoostArmed(false);
+    }
 
     setMatchResult({ won, delta, rounds: scoreboard });
     setPhase("result");
@@ -990,6 +1013,9 @@ export function LiveMatch({
           onJoin={(c) => startJoining(c)}
           value={enteredCode}
           setValue={setEnteredCode}
+          boostArmed={boostArmed}
+          setBoostArmed={setBoostArmed}
+          ownedBoosts={user.edgeBoosts}
         />
       )}
 
@@ -1045,16 +1071,50 @@ function Lobby({
   onHost,
   onJoin,
   value,
-  setValue
+  setValue,
+  boostArmed,
+  setBoostArmed,
+  ownedBoosts
 }: {
   onRandom: () => void;
   onHost: () => void;
   onJoin: (code: string) => void;
   value: string;
   setValue: (v: string) => void;
+  boostArmed: boolean;
+  setBoostArmed: (b: boolean) => void;
+  ownedBoosts: number;
 }) {
   return (
     <div className="space-y-4">
+      {/* Edge Boost arming */}
+      <div className="glass flex items-center justify-between rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">⚡</span>
+          <div>
+            <p className="label-xs text-mog-pink">Edge Boost</p>
+            <p className="text-xs text-white/60">
+              {ownedBoosts > 0
+                ? `+10% to your scores this match. ${ownedBoosts} owned.`
+                : "Earn boosts on the Season Pass."}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => ownedBoosts > 0 && setBoostArmed(!boostArmed)}
+          disabled={ownedBoosts === 0}
+          className={
+            "rounded-lg border px-4 py-2 text-[11px] uppercase tracking-[0.22em] transition " +
+            (boostArmed
+              ? "border-mog-pink bg-mog-pink/20 text-white"
+              : ownedBoosts > 0
+                ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
+                : "border-white/10 bg-white/[0.02] text-white/30")
+          }
+        >
+          {boostArmed ? "Armed ✓" : ownedBoosts > 0 ? "Arm Boost" : "Locked"}
+        </button>
+      </div>
       {/* Featured: Random Match — full-width hero card */}
       <button
         onClick={onRandom}

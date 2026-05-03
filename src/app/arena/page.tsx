@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { LiveMatch } from "@/components/Arena/LiveMatch";
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
+import { applyMatchResult } from "@/lib/season";
 import { findOpponent, type SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
@@ -63,6 +64,8 @@ export default function ArenaPage() {
   const [mode, setMode] = useState<Mode>("select");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [searchBand, setSearchBand] = useState(100);
+  const [boostActive, setBoostActive] = useState(false);
+  const [practiceMode, setPracticeMode] = useState(false);
   const [opponent, setOpponent] = useState<SeedUser | null>(null);
   const [oppBreakdown, setOppBreakdown] = useState<EdgeScoreBreakdown | null>(null);
   const [round, setRound] = useState(0);
@@ -125,8 +128,9 @@ export default function ArenaPage() {
   function evalRound() {
     if (!user.edgeScore || !oppBreakdown) return;
     const k = ROUND_CRITERIA[round].key;
-    const me = Math.round(scoreFor(user.edgeScore, k));
+    let me = Math.round(scoreFor(user.edgeScore, k));
     const opp = Math.round(scoreFor(oppBreakdown, k));
+    if (boostActive) me = Math.min(100, Math.round(me * 1.1));
     const next = [...scores, { me, opp }];
     setScores(next);
 
@@ -150,8 +154,9 @@ export default function ArenaPage() {
   function finishMatch(rounds: { me: number; opp: number }[], won: boolean) {
     if (!opponent) return;
     const isPlacement = user.placementsLeft > 0;
-    const delta = eloDelta(user.elo, opponent.elo, won ? 1 : 0, isPlacement);
-    const newElo = Math.max(0, user.elo + delta);
+    const delta = practiceMode
+      ? 0
+      : eloDelta(user.elo, opponent.elo, won ? 1 : 0, isPlacement);
 
     const record: MatchRecord = {
       id: `${Date.now()}-${opponent.id}`,
@@ -161,18 +166,31 @@ export default function ArenaPage() {
       oppScore: rounds.reduce((s, r) => s + (r.opp > r.me ? 1 : 0), 0),
       won,
       eloDelta: delta,
-      playedAt: Date.now()
+      playedAt: Date.now(),
+      rounds: rounds.map((r, i) => ({
+        criterion: ROUND_CRITERIA[i]?.label || "?",
+        me: r.me,
+        opp: r.opp
+      })),
+      mode: "bo3",
+      practice: practiceMode
     };
 
-    update((prev) => ({
-      elo: newElo,
-      peakElo: Math.max(prev.peakElo, newElo),
-      wins: prev.wins + (won ? 1 : 0),
-      losses: prev.losses + (won ? 0 : 1),
-      streak: won ? prev.streak + 1 : 0,
-      placementsLeft: Math.max(0, prev.placementsLeft - 1),
-      matchHistory: [record, ...prev.matchHistory].slice(0, 50)
-    }));
+    update((prev) =>
+      applyMatchResult(prev, {
+        won,
+        rawEloDelta: delta,
+        record,
+        practice: practiceMode,
+        mode: "bo3"
+      })
+    );
+
+    // Consume the activated edge boost (if any) — one-shot.
+    if (boostActive) {
+      update((prev) => ({ edgeBoosts: Math.max(0, prev.edgeBoosts - 1) }));
+      setBoostActive(false);
+    }
 
     setMatchResult({ won, delta, rounds });
     setPhase("result");
@@ -258,7 +276,14 @@ export default function ArenaPage() {
         {mode === "quick" && (
         <AnimatePresence mode="wait">
           {phase === "lobby" && (
-            <Lobby key="lobby" onStart={startSearch} />
+            <Lobby
+              key="lobby"
+              onStart={startSearch}
+              boostActive={boostActive}
+              setBoostActive={setBoostActive}
+              practiceMode={practiceMode}
+              setPracticeMode={setPracticeMode}
+            />
           )}
           {phase === "searching" && (
             <Searching key="search" band={searchBand} onCancel={cancelSearch} />
@@ -346,7 +371,19 @@ function ModeSelect({ onPick }: { onPick: (m: Mode) => void }) {
   );
 }
 
-function Lobby({ onStart }: { onStart: () => void }) {
+function Lobby({
+  onStart,
+  boostActive,
+  setBoostActive,
+  practiceMode,
+  setPracticeMode
+}: {
+  onStart: () => void;
+  boostActive: boolean;
+  setBoostActive: (b: boolean) => void;
+  practiceMode: boolean;
+  setPracticeMode: (b: boolean) => void;
+}) {
   const { user } = useUser();
   const rank = rankFromElo(user.elo);
   return (
@@ -383,9 +420,45 @@ function Lobby({ onStart }: { onStart: () => void }) {
         Best-of-3 rounds. Each round picks a different criterion (Symmetry,
         Jawline, Overall). Winner is whoever takes 2 rounds.
       </p>
+
+      {/* Pre-match toggles: Edge Boost + Practice Mode */}
+      <div className="mx-auto mt-6 flex max-w-sm flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={() => user.edgeBoosts > 0 && setBoostActive(!boostActive)}
+          disabled={user.edgeBoosts === 0}
+          className={
+            "rounded-lg border px-4 py-2 text-[11px] uppercase tracking-[0.22em] transition " +
+            (boostActive
+              ? "border-mog-pink bg-mog-pink/20 text-white"
+              : user.edgeBoosts > 0
+                ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
+                : "border-white/10 bg-white/[0.02] text-white/30")
+          }
+          title={
+            user.edgeBoosts === 0
+              ? "Earn Edge Boosts via the Season Pass"
+              : "+10% to your score this match"
+          }
+        >
+          ⚡ {boostActive ? "Boost Armed" : `Edge Boost (${user.edgeBoosts})`}
+        </button>
+        <button
+          onClick={() => setPracticeMode(!practiceMode)}
+          className={
+            "rounded-lg border px-4 py-2 text-[11px] uppercase tracking-[0.22em] transition " +
+            (practiceMode
+              ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-200"
+              : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20")
+          }
+          title="No ELO impact, but you still earn token XP"
+        >
+          {practiceMode ? "Practice ✓" : "Practice Mode"}
+        </button>
+      </div>
+
       <button
         onClick={onStart}
-        className="mt-7 rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-8 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+        className="mt-5 rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-8 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
       >
         Find Match →
       </button>
