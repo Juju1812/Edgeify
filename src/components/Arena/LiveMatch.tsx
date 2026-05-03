@@ -156,6 +156,13 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   const [enteredCode, setEnteredCode] = useState("");
   const [opponent, setOpponent] = useState<{ username: string; elo: number } | null>(null);
   const [round, setRound] = useState(0);
+  // Mirror of `round` available to event handlers wired up before later
+  // re-renders (handleMsg captured `round` in its closure on the first
+  // render, so msg.idx === round was comparing against stale 0 for life).
+  const roundRef = useRef(0);
+  useEffect(() => {
+    roundRef.current = round;
+  }, [round]);
   const [scoreboard, setScoreboard] = useState<{ me: number; opp: number }[]>([]);
   const [liveMine, setLiveMine] = useState(0);
   const [liveOpp, setLiveOpp] = useState(0);
@@ -550,8 +557,9 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
         break;
       case "score-tick":
         // Opponent broadcasting their running score — only update the
-        // live indicator if it's for the current round.
-        if (msg.idx === round) {
+        // live indicator if it's for the current round (read via ref
+        // since this handler closed over the first render's `round=0`).
+        if (msg.idx === roundRef.current) {
           setLiveOpp(msg.value);
         }
         break;
