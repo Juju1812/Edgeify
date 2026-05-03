@@ -48,46 +48,85 @@ type LiveMsg =
   | { type: "leave" };
 
 /**
- * AR overlay for the live match — bright green tracking dots with a
- * glow, plus a glowing cyan face frame. Drawn manually mirrored
- * (W - x) since the visible video is CSS-mirrored but the canvas isn't.
+ * Standard 68-point face contour groupings (jaw, brows, eyes, nose,
+ * mouth). [startIdx, endIdx, isClosedLoop].
+ */
+const FACE_CONTOURS_LIVE: [number, number, boolean][] = [
+  [0, 16, false],
+  [17, 21, false],
+  [22, 26, false],
+  [27, 30, false],
+  [31, 35, false],
+  [36, 41, true],
+  [42, 47, true],
+  [48, 59, true],
+  [60, 67, true]
+];
+
+/** Cross-connections for wireframe mesh feel. */
+const FACE_MESH_LINKS_LIVE: [number, number][] = [
+  [0, 17], [16, 26],
+  [17, 36], [21, 39], [22, 42], [26, 45],
+  [21, 22],
+  [39, 27], [42, 27],
+  [33, 48], [33, 54], [33, 51],
+  [57, 8],
+  [48, 4], [54, 12],
+  [40, 1], [47, 15]
+];
+
+/**
+ * AR overlay for the live match — green wireframe mesh, bright green
+ * tracking dots with glow. Coords are mirrored manually (W - x) since
+ * the visible video is CSS-mirrored but the canvas isn't.
  */
 function drawLiveOverlay(
   ctx: CanvasRenderingContext2D,
   points: Pt[],
-  box: { x: number; y: number; width: number; height: number },
+  _box: { x: number; y: number; width: number; height: number },
   W: number
 ) {
-  // DEBUG SENTINEL — see /lab for explanation
+  const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
+
+  // Mesh contours
   ctx.save();
-  ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
-  ctx.fillRect(8, 8, 60, 24);
-  ctx.fillStyle = "white";
-  ctx.font = "bold 12px ui-monospace, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("AR ON", 38, 20);
+  ctx.strokeStyle = "rgba(74, 222, 128, 0.55)";
+  ctx.shadowColor = "rgba(74, 222, 128, 0.55)";
+  ctx.shadowBlur = 4;
+  ctx.lineWidth = 1.1;
+  for (const [start, end, closed] of FACE_CONTOURS_LIVE) {
+    ctx.beginPath();
+    const first = mx(points[start]);
+    ctx.moveTo(first.x, first.y);
+    for (let i = start + 1; i <= end; i++) {
+      const p = mx(points[i]);
+      ctx.lineTo(p.x, p.y);
+    }
+    if (closed) ctx.closePath();
+    ctx.stroke();
+  }
+  // Cross links — fainter
+  ctx.strokeStyle = "rgba(74, 222, 128, 0.28)";
+  ctx.lineWidth = 0.9;
+  for (const [a, b] of FACE_MESH_LINKS_LIVE) {
+    const pa = mx(points[a]);
+    const pb = mx(points[b]);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
   ctx.restore();
 
-  // Face frame — thick cyan with glow
+  // Tracked landmarks: bright green dots with glow.
   ctx.save();
-  ctx.strokeStyle = "rgba(34, 211, 238, 0.9)";
-  ctx.shadowColor = "rgba(34, 211, 238, 0.8)";
-  ctx.shadowBlur = 12;
-  ctx.lineWidth = 3;
-  const bx = W - box.x - box.width;
-  ctx.strokeRect(bx, box.y, box.width, box.height);
-  ctx.restore();
-
-  // Tracking dots — bright green with glow, large enough to see
-  // clearly after object-cover scaling on a phone screen.
-  ctx.save();
-  ctx.fillStyle = "#4ade80"; // green-400, full opacity
+  ctx.fillStyle = "#4ade80";
   ctx.shadowColor = "#4ade80";
   ctx.shadowBlur = 8;
   for (const p of points) {
+    const { x, y } = mx(p);
     ctx.beginPath();
-    ctx.arc(W - p.x, p.y, 3.5, 0, Math.PI * 2);
+    ctx.arc(x, y, 2.8, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();

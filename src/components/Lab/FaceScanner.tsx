@@ -124,6 +124,47 @@ const COLOR = {
   amber: "#f59e0b"
 };
 
+/**
+ * Standard 68-point face contour groupings — each tuple is
+ * [startIdx, endIdx, isClosedLoop]. Drawing these as polylines gives
+ * the silhouette of the jaw, brows, eyes, nose, and mouth.
+ */
+const FACE_CONTOURS: [number, number, boolean][] = [
+  [0, 16, false],   // jawline
+  [17, 21, false],  // right eyebrow
+  [22, 26, false],  // left eyebrow
+  [27, 30, false],  // nose bridge
+  [31, 35, false],  // nose bottom
+  [36, 41, true],   // right eye
+  [42, 47, true],   // left eye
+  [48, 59, true],   // outer lips
+  [60, 67, true]    // inner lips
+];
+
+/**
+ * Cross-connections that turn the contour outline into a more
+ * wireframe-mesh look. Each pair of point indices gets connected by a
+ * thin faint line.
+ */
+const FACE_MESH_LINKS: [number, number][] = [
+  // Frame the face: jaw to brows
+  [0, 17], [16, 26],
+  // Brows to eye corners
+  [17, 36], [21, 39], [22, 42], [26, 45],
+  // Bridge across the brows
+  [21, 22],
+  // Eye corners to nose bridge
+  [39, 27], [42, 27],
+  // Nose tip to mouth
+  [33, 48], [33, 54], [33, 51],
+  // Lower lip to chin
+  [57, 8],
+  // Mouth corners to jawline
+  [48, 4], [54, 12],
+  // Eyes to cheekbones
+  [40, 1], [47, 15]
+];
+
 function drawAROverlay(
   ctx: CanvasRenderingContext2D,
   points: Pt[],
@@ -133,21 +174,6 @@ function drawAROverlay(
   H: number,
   pose: FacePose
 ) {
-  // DEBUG SENTINEL — proves the canvas is rendering and on top.
-  // If you can see this red box but no dots/labels, the canvas is fine
-  // and the issue is something else. If you can't see this either, the
-  // canvas itself is being hidden by the video or something else is
-  // covering it.
-  ctx.save();
-  ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
-  ctx.fillRect(8, 8, 60, 24);
-  ctx.fillStyle = "white";
-  ctx.font = "bold 12px ui-monospace, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("AR ON", 38, 20);
-  ctx.restore();
-
   // Mirror x so coords match the visible (CSS-mirrored) video.
   const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
   const mb = {
@@ -157,17 +183,48 @@ function drawAROverlay(
     h: box.height
   };
 
-  // Tracked landmarks: bright green dots on every point, with a glow so
-  // they're clearly visible after object-cover scales the canvas to fit
-  // the display container (especially on phone screens).
+  // ── Face mesh: contour outlines + cross-connections ──────────────
+  // Drawn first so the dots paint on top.
   ctx.save();
-  ctx.fillStyle = pose.goodForScoring ? "#4ade80" : "#f59e0b";
-  ctx.shadowColor = pose.goodForScoring ? "#4ade80" : "#f59e0b";
-  ctx.shadowBlur = 6;
+  ctx.strokeStyle = "rgba(74, 222, 128, 0.55)";
+  ctx.shadowColor = "rgba(74, 222, 128, 0.55)";
+  ctx.shadowBlur = 4;
+  ctx.lineWidth = 1.1;
+
+  for (const [start, end, closed] of FACE_CONTOURS) {
+    ctx.beginPath();
+    const first = mx(points[start]);
+    ctx.moveTo(first.x, first.y);
+    for (let i = start + 1; i <= end; i++) {
+      const p = mx(points[i]);
+      ctx.lineTo(p.x, p.y);
+    }
+    if (closed) ctx.closePath();
+    ctx.stroke();
+  }
+
+  // Cross-links — fainter, give it the wireframe-mesh feel.
+  ctx.strokeStyle = "rgba(74, 222, 128, 0.28)";
+  ctx.lineWidth = 0.9;
+  for (const [a, b] of FACE_MESH_LINKS) {
+    const pa = mx(points[a]);
+    const pb = mx(points[b]);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── Tracked landmarks: bright green dots with glow on every point. ──
+  ctx.save();
+  ctx.fillStyle = "#4ade80";
+  ctx.shadowColor = "#4ade80";
+  ctx.shadowBlur = 8;
   for (const p of points) {
     const { x, y } = mx(p);
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.arc(x, y, 2.6, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
@@ -557,21 +614,12 @@ export function FaceScanner({
       )
       .withFaceLandmarks();
 
-    // CLEAR + DRAW happens AFTER the await. Previously clearRect + the
-    // DRAW OK debug block were drawn BEFORE the await, then drawAROverlay
-    // drew AFTER the await — and React's reconciliation during the await
-    // appears to be wiping the buffer. Doing all drawing in one synchronous
-    // burst at the end of the frame avoids that race.
+    // ALL canvas drawing happens AFTER the await in a single synchronous
+    // burst. Doing drawing before the await caused React's reconciliation
+    // (triggered by state updates from this frame) to wipe the buffer
+    // mid-frame, which is why earlier debug rectangles drawn before the
+    // await persisted but anything drawn after did not.
     ctx.clearRect(0, 0, W, H);
-
-    // DIAGNOSTIC: magenta block — now drawn AFTER the await.
-    ctx.fillStyle = "rgba(217, 70, 239, 0.85)";
-    ctx.fillRect(20, 20, 200, 100);
-    ctx.fillStyle = "white";
-    ctx.font = "bold 24px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("DRAW OK", 120, 70);
 
     if (detection) {
       const box = detection.detection.box;
@@ -705,11 +753,7 @@ export function FaceScanner({
           ref={overlayRef}
           width={640}
           height={480}
-          style={{
-            zIndex: 50,
-            border: "6px solid red",
-            backgroundColor: "rgba(255, 255, 0, 0.15)"
-          }}
+          style={{ zIndex: 50 }}
           className="pointer-events-none absolute inset-0 h-full w-full"
         />
         <canvas ref={captureRef} className="hidden" />
