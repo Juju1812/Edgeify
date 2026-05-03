@@ -1035,6 +1035,30 @@ export function LiveMatch({
     setPhase("result");
     playSfx(won ? "win" : "lose");
     vibrate(won ? [50, 80, 50, 80, 200] : [400]);
+
+    // Persist a shareable replay (best-effort, fire-and-forget).
+    try {
+      fetch(`/api/replay/${encodeURIComponent(record.id)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: record.id,
+          myName: user.username || "PLAYER",
+          oppName: opponent.username,
+          myScore: myWins,
+          oppScore: oppWins,
+          won,
+          eloDelta: delta,
+          rounds: record.rounds || [],
+          myFace: user.faceDataUrl,
+          oppFace: null,
+          mode: record.mode,
+          playedAt: record.playedAt
+        })
+      }).catch(() => {});
+    } catch {
+      /* */
+    }
   }
 
   async function copyCode() {
@@ -1771,6 +1795,20 @@ function Result({
 }) {
   const { user, update } = useUser();
   const [blocked, setBlocked] = useState(false);
+  const [replayCopied, setReplayCopied] = useState(false);
+  const lastMatchId = user.matchHistory[0]?.id;
+  async function copyReplayLink() {
+    if (!lastMatchId) return;
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/replay/${encodeURIComponent(lastMatchId)}`
+      );
+      setReplayCopied(true);
+      window.setTimeout(() => setReplayCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
   const isBlocked = blocked || user.blockedUsers.includes(opponent.username);
   const blockOpponent = () => {
     if (isBlocked) return;
@@ -1895,6 +1933,13 @@ function Result({
               : shareDone === "downloaded"
                 ? "Saved ✓"
                 : "Share Result"}
+        </button>
+        <button
+          onClick={copyReplayLink}
+          disabled={!lastMatchId}
+          className="rounded-lg border border-cyan-400/30 bg-cyan-500/5 px-6 py-3 text-xs uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-400/60 disabled:opacity-40"
+        >
+          {replayCopied ? "Copied ✓" : "Copy Replay Link"}
         </button>
         <button
           onClick={blockOpponent}
