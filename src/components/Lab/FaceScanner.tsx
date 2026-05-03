@@ -675,7 +675,7 @@ export function FaceScanner({
           ref={overlayRef}
           width={640}
           height={480}
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full"
         />
         <canvas ref={captureRef} className="hidden" />
 

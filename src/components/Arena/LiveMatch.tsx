@@ -172,10 +172,9 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           return;
         }
         localStreamRef.current = stream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-          await localVideoRef.current.play().catch(() => {});
-        }
+        // Don't attach the stream to a video element here — there is no
+        // hidden source video anymore. The visible PlayerTile mounts
+        // during phase="vs" and grabs the stream via its callback ref.
         setPhase("lobby");
       } catch (e: unknown) {
         if (cancelled) return;
@@ -756,28 +755,10 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="space-y-6">
-      {/* Off-screen local video — face-api reads frames from this element.
-          We CAN'T use display:none because browsers throttle/skip frames
-          on hidden videos. Position it absolutely off-screen so the
-          browser still pumps frames into the element while the user
-          can't see it. */}
-      <video
-        ref={localVideoRef}
-        playsInline
-        muted
-        autoPlay
-        width={320}
-        height={240}
-        style={{
-          position: "fixed",
-          left: "-9999px",
-          top: "-9999px",
-          width: 320,
-          height: 240,
-          opacity: 0,
-          pointerEvents: "none"
-        }}
-      />
+      {/* No hidden video — face-api reads frames directly from the
+          visible local PlayerTile, which is mounted whenever a round
+          is in progress. The mineRef callback below assigns localVideoRef
+          so runScanLoop can read its frames. */}
 
       {phase === "lobby" && (
         <Lobby
@@ -804,6 +785,10 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       {(phase === "vs" || phase === "scanning" || phase === "between") && (
         <Arena
           mineRef={(el) => {
+            // Point face-api's source at the visible video element
+            // (it's actually mounted with live frames flowing). When
+            // the element unmounts we get el=null and clear the ref.
+            localVideoRef.current = el;
             if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
               el.srcObject = localStreamRef.current;
               el.play().catch(() => {});
@@ -1187,7 +1172,7 @@ function PlayerTile(props: {
             ref={props.overlayRef}
             width={640}
             height={480}
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            className="pointer-events-none absolute inset-0 z-10 h-full w-full"
           />
         )}
       </div>
