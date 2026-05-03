@@ -1,0 +1,190 @@
+// MogOff database schema.
+// Designed for PostgreSQL. Switch the provider to "sqlite" + change DATABASE_URL
+// to "file:./dev.db" for zero-setup local development.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth (NextAuth.js compatible models) ──────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core ──────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String?   @unique
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  countryCode   String?   @db.VarChar(2)
+  isOver18      Boolean   @default(false)
+  consentedAt   DateTime?
+  hideFromBoard Boolean   @default(false)
+  banned        Boolean   @default(false)
+  banReason     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+
+  faceProfile     FaceProfile?
+  ratings         Rating[]
+  matchesAsA      Match[]      @relation("matchPlayerA")
+  matchesAsB      Match[]      @relation("matchPlayerB")
+  privateRoomsOwn PrivateRoom[]
+}
+
+// ─── Face / Scoring ────────────────────────────────────────────────────────────
+
+model FaceProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Cloudinary public_id of the user-chosen best photo (NEVER raw uploads from
+  // anywhere but webcam — see liveness check + NSFW moderation in app code).
+  photoPublicId String?
+
+  // Geometric measurements computed client-side from face-api.js landmarks.
+  // These are the "MogScore" components — entertainment metrics, not beauty
+  // judgments. All 0..1 unless noted.
+  symmetry          Float?
+  jawlineDefinition Float?
+  canthalTilt       Float?  // signed: positive = positive tilt
+  cheekboneProm     Float?
+  goldenRatio       Float?  // closeness to phi-based proportions
+  mogScore          Float?  // weighted composite, 0..100
+
+  // Embedding (face-api.js descriptor, 128 floats). Stored for matchmaking
+  // dedupe + same-person detection across accounts.
+  embedding         Float[]
+
+  capturedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ─── Ranked Play ───────────────────────────────────────────────────────────────
+
+model Rating {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  elo          Int      @default(800)
+  peakElo      Int      @default(800)
+  wins         Int      @default(0)
+  losses       Int      @default(0)
+  streak       Int      @default(0)
+  placementsLeft Int    @default(5)
+  updatedAt    DateTime @updatedAt
+}
+
+enum MatchStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Match {
+  id          String      @id @default(cuid())
+  status      MatchStatus @default(PENDING)
+  playerAId   String
+  playerBId   String
+  playerA     User        @relation("matchPlayerA", fields: [playerAId], references: [id])
+  playerB     User        @relation("matchPlayerB", fields: [playerBId], references: [id])
+
+  scoreA      Float?
+  scoreB      Float?
+  winnerId    String?
+  eloDeltaA   Int?
+  eloDeltaB   Int?
+
+  // Round-by-round breakdown stored as JSON for flexibility.
+  rounds      Json?
+
+  privateRoomId String?
+  privateRoom   PrivateRoom? @relation(fields: [privateRoomId], references: [id])
+
+  createdAt   DateTime    @default(now())
+  completedAt DateTime?
+
+  @@index([playerAId])
+  @@index([playerBId])
+  @@index([status, createdAt])
+}
+
+// ─── Private Rooms ─────────────────────────────────────────────────────────────
+
+model PrivateRoom {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(6)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  size      Int      @default(8) // 4 / 8 / 16
+  rules     Json?
+  matches   Match[]
+  createdAt DateTime @default(now())
+}
+
+// ─── Reports / Moderation ──────────────────────────────────────────────────────
+
+enum ReportReason {
+  HARASSMENT
+  NSFW
+  IMPERSONATION
+  UNDERAGE
+  OTHER
+}
+
+model Report {
+  id           String       @id @default(cuid())
+  reporterId   String
+  targetUserId String
+  reason       ReportReason
+  details      String?      @db.Text
+  resolved     Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+
+  @@index([targetUserId])
+}
