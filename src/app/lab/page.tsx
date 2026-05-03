@@ -19,15 +19,19 @@ export default function LabPage() {
 
   function commit() {
     if (!pending) return;
-    update({
+    update((prev) => ({
       hasScanned: true,
       faceDataUrl: pending.faceDataUrl,
       edgeScore: pending.score,
       // Seed initial ELO from EdgeScore: 700–1300 range
       elo: Math.round(700 + (pending.score.composite / 100) * 600),
       peakElo: Math.round(700 + (pending.score.composite / 100) * 600),
-      placementsLeft: 5
-    });
+      placementsLeft: 5,
+      lifetime: {
+        ...prev.lifetime,
+        facesScanned: prev.lifetime.facesScanned + 1
+      }
+    }));
     setPending(null);
   }
 

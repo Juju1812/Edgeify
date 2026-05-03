@@ -12,7 +12,16 @@ import {
   type Pt
 } from "@/lib/edge-score";
 import { playSfx } from "@/lib/audio";
-import type { EdgeScoreBreakdown } from "@/lib/types";
+import { useUser } from "@/lib/user-context";
+import type { ArColorId, EdgeScoreBreakdown } from "@/lib/types";
+
+const AR_COLOR_HEX_LAB: Record<ArColorId, string> = {
+  green: "#4ade80",
+  cyan: "#22d3ee",
+  pink: "#d946ef",
+  gold: "#fde047",
+  violet: "#a855f7"
+};
 
 type FaceApiNS = typeof import("face-api.js");
 
@@ -177,7 +186,8 @@ function drawAROverlay(
   avg: EdgeScoreBreakdown,
   W: number,
   H: number,
-  pose: FacePose
+  pose: FacePose,
+  arColorHex: string = "#4ade80"
 ) {
   // Mirror x so coords match the visible (CSS-mirrored) video.
   const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
@@ -190,9 +200,14 @@ function drawAROverlay(
 
   // ── Face mesh: contour outlines + cross-connections ──────────────
   // Drawn first so the dots paint on top.
+  const m = arColorHex.match(/^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i);
+  const rgbStr = m
+    ? `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`
+    : "74, 222, 128";
+
   ctx.save();
-  ctx.strokeStyle = "rgba(74, 222, 128, 0.55)";
-  ctx.shadowColor = "rgba(74, 222, 128, 0.55)";
+  ctx.strokeStyle = `rgba(${rgbStr}, 0.55)`;
+  ctx.shadowColor = `rgba(${rgbStr}, 0.55)`;
   ctx.shadowBlur = 4;
   ctx.lineWidth = 1.1;
 
@@ -209,7 +224,7 @@ function drawAROverlay(
   }
 
   // Cross-links — fainter, give it the wireframe-mesh feel.
-  ctx.strokeStyle = "rgba(74, 222, 128, 0.28)";
+  ctx.strokeStyle = `rgba(${rgbStr}, 0.28)`;
   ctx.lineWidth = 0.9;
   for (const [a, b] of FACE_MESH_LINKS) {
     const pa = mx(points[a]);
@@ -221,10 +236,10 @@ function drawAROverlay(
   }
   ctx.restore();
 
-  // ── Tracked landmarks: bright green dots with glow on every point. ──
+  // ── Tracked landmarks: chosen color dots with glow on every point. ──
   ctx.save();
-  ctx.fillStyle = "#4ade80";
-  ctx.shadowColor = "#4ade80";
+  ctx.fillStyle = arColorHex;
+  ctx.shadowColor = arColorHex;
   ctx.shadowBlur = 8;
   for (const p of points) {
     const { x, y } = mx(p);
@@ -490,6 +505,8 @@ export function FaceScanner({
 }: {
   onComplete: (result: ScanResult) => void;
 }) {
+  const { user } = useUser();
+  const arColorHex = AR_COLOR_HEX_LAB[user.arColor] || "#4ade80";
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const captureRef = useRef<HTMLCanvasElement>(null);
@@ -513,6 +530,11 @@ export function FaceScanner({
   const earBelowFramesRef = useRef(0);
   const earWasLowRef = useRef(false);
   const lastEarRef = useRef(0);
+
+  // Best-take pfp — capture the frame with the highest detector confidence
+  // among good-pose frames. Replaces the previous "last frame" approach.
+  const bestTakeUrlRef = useRef<string | null>(null);
+  const bestTakeScoreRef = useRef<number>(0);
 
   // Head-turn liveness — track observed yaw + pitch range during the scan.
   // We pick a random "challenge direction" (left/right/up/down) at the
@@ -633,6 +655,8 @@ export function FaceScanner({
     );
     samplesRef.current = [];
     landmarkAccumRef.current = [];
+    bestTakeUrlRef.current = null;
+    bestTakeScoreRef.current = 0;
     totalSamplesRef.current = 0;
     scanStartRef.current = performance.now();
     setBlinks(0);
@@ -658,12 +682,19 @@ export function FaceScanner({
     // Higher inputSize gives noticeably more precise landmarks, at
     // ~2x the per-frame cost. 416 is a good sweet spot for accuracy
     // without dropping below ~15 fps on most laptops/phones.
-    const detection = await faceapi
-      .detectSingleFace(
+    // Use detectAllFaces so we can REJECT frames with more than one face
+    // visible (anti-cheat / confusion). Then proceed with the highest-
+    // confidence detection's landmarks.
+    const allFaces = await faceapi
+      .detectAllFaces(
         video,
         new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 })
       )
       .withFaceLandmarks();
+    const detection =
+      allFaces.length === 1
+        ? allFaces[0]
+        : null; // multi-face → treat as no face, surface a hint below
 
     // ALL canvas drawing happens AFTER the await in a single synchronous
     // burst. Doing drawing before the await caused React's reconciliation
@@ -690,6 +721,27 @@ export function FaceScanner({
       if (pose.goodForScoring && detScore >= 0.6) {
         landmarkAccumRef.current.push(points);
         totalSamplesRef.current += 1;
+        // Best-take pfp: keep the frame with the highest confidence among
+        // good-pose frames. We snapshot the video into a 200x150 jpeg
+        // immediately rather than referencing the live video element.
+        if (detScore > bestTakeScoreRef.current) {
+          try {
+            const cap = captureRef.current;
+            const vid = videoRef.current;
+            if (cap && vid) {
+              cap.width = 200;
+              cap.height = 150;
+              const cctx = cap.getContext("2d");
+              if (cctx) {
+                cctx.drawImage(vid, 0, 0, cap.width, cap.height);
+                bestTakeUrlRef.current = cap.toDataURL("image/jpeg", 0.7);
+                bestTakeScoreRef.current = detScore;
+              }
+            }
+          } catch {
+            /* */
+          }
+        }
       }
 
       // Live HUD score: compute on a running consensus of accumulated
@@ -705,7 +757,7 @@ export function FaceScanner({
 
       // AR overlay — green dots on every landmark, cyan anchor points,
       // floating labels with live values per metric.
-      drawAROverlay(ctx, points, box, avg, W, H, pose);
+      drawAROverlay(ctx, points, box, avg, W, H, pose, arColorHex);
 
       // ─── Liveness via random-axis head movement ────────────────────
       // We picked a random challenge axis at scan start; require the
@@ -772,7 +824,13 @@ export function FaceScanner({
       ctx.fillStyle = "rgba(255,255,255,0.55)";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("LOOKING FOR FACE…", W / 2, H / 2);
+      const msg =
+        allFaces.length > 1
+          ? `${allFaces.length} FACES — ONLY ONE PLAYER ALLOWED`
+          : "LOOKING FOR FACE…";
+      ctx.fillStyle =
+        allFaces.length > 1 ? "rgba(245, 158, 11, 0.9)" : "rgba(255,255,255,0.55)";
+      ctx.fillText(msg, W / 2, H / 2);
     }
 
     rafRef.current = requestAnimationFrame(loop);
@@ -793,16 +851,21 @@ export function FaceScanner({
     const finalScore =
       accum.length >= 5 ? computeEdgeScore(consensusLandmarks(accum)) : avg;
 
-    // Capture the current frame to a small JPEG data URL. 200x150 @ 0.7
-    // is typically 8-15KB which fits comfortably in KV-backed profile
-    // sync, so the captured face survives cross-device sign-in.
-    const video = videoRef.current!;
-    const cap = captureRef.current!;
-    cap.width = 200;
-    cap.height = 150;
-    const cctx = cap.getContext("2d")!;
-    cctx.drawImage(video, 0, 0, cap.width, cap.height);
-    const faceDataUrl = cap.toDataURL("image/jpeg", 0.7);
+    // Use the BEST-TAKE captured during the scan if we have one (the
+    // frame with the highest detector confidence among good-pose
+    // frames). Falls back to a fresh snapshot of the current frame.
+    let faceDataUrl: string;
+    if (bestTakeUrlRef.current) {
+      faceDataUrl = bestTakeUrlRef.current;
+    } else {
+      const video = videoRef.current!;
+      const cap = captureRef.current!;
+      cap.width = 200;
+      cap.height = 150;
+      const cctx = cap.getContext("2d")!;
+      cctx.drawImage(video, 0, 0, cap.width, cap.height);
+      faceDataUrl = cap.toDataURL("image/jpeg", 0.7);
+    }
 
     // Brief dramatic pause so the "computing" UI registers.
     setTimeout(() => {

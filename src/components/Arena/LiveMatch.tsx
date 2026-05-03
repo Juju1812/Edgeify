@@ -12,6 +12,7 @@ import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
 import { playSfx, vibrate } from "@/lib/audio";
 import { applyMatchResult } from "@/lib/season";
+import { coachingTip } from "@/lib/coaching";
 import { Confetti } from "@/components/Confetti";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
@@ -57,8 +58,16 @@ type LiveMsg =
   | { type: "reaction"; emoji: string }                // emoji burst from sender
   | { type: "leave" };
 
-const REACTION_EMOJIS = ["🔥", "💀", "👑", "😂", "🗿", "🤡"];
+const DEFAULT_REACTIONS = ["🔥", "💀", "👑", "😂", "🗿", "🤡"];
 type ReactionPing = { id: number; emoji: string; from: "me" | "opp" };
+
+const AR_COLOR_HEX: Record<string, string> = {
+  green: "#4ade80",
+  cyan: "#22d3ee",
+  pink: "#d946ef",
+  gold: "#fde047",
+  violet: "#a855f7"
+};
 
 /**
  * Standard 68-point face contour groupings (jaw, brows, eyes, nose,
@@ -75,6 +84,16 @@ const FACE_CONTOURS_LIVE: [number, number, boolean][] = [
   [48, 59, true],
   [60, 67, true]
 ];
+
+/** Convert a #rrggbb hex to an rgba(r,g,b,a) string. */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = hex.match(/^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i);
+  if (!m) return `rgba(74, 222, 128, ${alpha})`;
+  const r = parseInt(m[1], 16);
+  const g = parseInt(m[2], 16);
+  const b = parseInt(m[3], 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 /** Cross-connections for wireframe mesh feel. */
 const FACE_MESH_LINKS_LIVE: [number, number][] = [
@@ -97,14 +116,17 @@ function drawLiveOverlay(
   ctx: CanvasRenderingContext2D,
   points: Pt[],
   _box: { x: number; y: number; width: number; height: number },
-  W: number
+  W: number,
+  color: string = "#4ade80"
 ) {
   const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
+  // Build rgba forms from the supplied hex
+  const rgba = (a: number) => hexToRgba(color, a);
 
   // Mesh contours
   ctx.save();
-  ctx.strokeStyle = "rgba(74, 222, 128, 0.55)";
-  ctx.shadowColor = "rgba(74, 222, 128, 0.55)";
+  ctx.strokeStyle = rgba(0.55);
+  ctx.shadowColor = rgba(0.55);
   ctx.shadowBlur = 4;
   ctx.lineWidth = 1.1;
   for (const [start, end, closed] of FACE_CONTOURS_LIVE) {
@@ -119,7 +141,7 @@ function drawLiveOverlay(
     ctx.stroke();
   }
   // Cross links — fainter
-  ctx.strokeStyle = "rgba(74, 222, 128, 0.28)";
+  ctx.strokeStyle = rgba(0.28);
   ctx.lineWidth = 0.9;
   for (const [a, b] of FACE_MESH_LINKS_LIVE) {
     const pa = mx(points[a]);
@@ -131,10 +153,10 @@ function drawLiveOverlay(
   }
   ctx.restore();
 
-  // Tracked landmarks: bright green dots with glow.
+  // Tracked landmarks: chosen color with glow.
   ctx.save();
-  ctx.fillStyle = "#4ade80";
-  ctx.shadowColor = "#4ade80";
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
   ctx.shadowBlur = 8;
   for (const p of points) {
     const { x, y } = mx(p);
@@ -211,12 +233,16 @@ export function LiveMatch({
 
   // Mic toggle — enables/disables our audio track. Opponent's stream
   // already includes audio if their mic is on (handled by their video el).
-  const [micOn, setMicOn] = useState(false);
-  function toggleMic() {
-    const next = !micOn;
-    setMicOn(next);
+  // Initial value follows the user's preferred default in /settings.
+  const [micOn, setMicOn] = useState(user.micDefault);
+  // Re-sync the audio track whenever micOn flips OR after the local
+  // stream first attaches (since on mount the stream isn't ready yet).
+  useEffect(() => {
     const stream = localStreamRef.current;
-    stream?.getAudioTracks().forEach((t) => (t.enabled = next));
+    stream?.getAudioTracks().forEach((t) => (t.enabled = micOn));
+  });
+  function toggleMic() {
+    setMicOn(!micOn);
   }
 
   // Edge Boost — armed before queuing, applies +10% to my round scores.
@@ -871,7 +897,8 @@ export function LiveMatch({
           }
 
           if (overlay && ctx) {
-            drawLiveOverlay(ctx, points, det.detection.box, overlay.width);
+            const arHex = AR_COLOR_HEX[user.arColor] || "#4ade80";
+            drawLiveOverlay(ctx, points, det.detection.box, overlay.width, arHex);
           }
         }
       } catch {
@@ -1085,6 +1112,8 @@ export function LiveMatch({
           onReact={sendReaction}
           micOn={micOn}
           onMicToggle={toggleMic}
+          reactionEmojis={user.customEmojis}
+          privacyBlur={user.privacyBlur}
         />
       )}
 
@@ -1343,7 +1372,9 @@ function Arena({
   reactions,
   onReact,
   micOn,
-  onMicToggle
+  onMicToggle,
+  reactionEmojis,
+  privacyBlur
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1359,6 +1390,8 @@ function Arena({
   onReact: (emoji: string) => void;
   micOn: boolean;
   onMicToggle: () => void;
+  reactionEmojis?: string[];
+  privacyBlur?: boolean;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1421,6 +1454,7 @@ function Arena({
           showScore={phase === "scanning" || phase === "between"}
           isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
           reactions={reactions.filter((r) => r.from === "me")}
+          blur={privacyBlur}
         />
 
         <div className="flex items-center justify-center gap-2 md:flex-col">
@@ -1470,7 +1504,7 @@ function Arena({
         >
           {micOn ? "🎙️" : "🔇"}
         </button>
-        {REACTION_EMOJIS.map((e) => (
+        {(reactionEmojis || DEFAULT_REACTIONS).map((e) => (
           <button
             key={e}
             onClick={() => onReact(e)}
@@ -1573,6 +1607,7 @@ function PlayerTile(props: {
   showScore: boolean;
   isWinner: boolean | null;
   reactions?: ReactionPing[];
+  blur?: boolean;
 }) {
   const ringColor =
     props.isWinner === true
@@ -1590,6 +1625,11 @@ function PlayerTile(props: {
           playsInline
           muted
           autoPlay
+          style={
+            props.blur
+              ? { filter: "blur(12px) brightness(0.85) saturate(1.1)" }
+              : undefined
+          }
           className={`h-full w-full object-cover ${props.mirror ? "-scale-x-100" : ""}`}
         />
         {props.overlayRef && (
@@ -1750,6 +1790,18 @@ function Result({
         {result.delta >= 0 ? "+" : ""}
         {result.delta} ELO
       </p>
+      {/* Coaching tip — only shown after a loss when there's a clear pattern */}
+      {!result.won && (() => {
+        const tip = coachingTip(user);
+        if (!tip) return null;
+        return (
+          <div className="mx-auto mt-6 max-w-md rounded-xl border border-mog-violet/30 bg-mog-violet/5 p-4 text-left">
+            <p className="label-xs text-mog-violet">Coach · {tip.criterion}</p>
+            <p className="mt-2 text-xs leading-relaxed text-white/70">{tip.tip}</p>
+          </div>
+        );
+      })()}
+
       <div className="mt-7 flex flex-wrap justify-center gap-3">
         <button
           onClick={share}
