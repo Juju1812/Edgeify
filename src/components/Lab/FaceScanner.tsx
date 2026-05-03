@@ -514,9 +514,16 @@ export function FaceScanner({
   const earWasLowRef = useRef(false);
   const lastEarRef = useRef(0);
 
-  // Head-turn liveness — track observed yaw range during the scan.
+  // Head-turn liveness — track observed yaw + pitch range during the scan.
+  // We pick a random "challenge direction" (left/right/up/down) at the
+  // start of each scan and require the user to actually rotate their
+  // head in that axis. Photos and looped videos can't fake this.
   const yawMinRef = useRef(Number.POSITIVE_INFINITY);
   const yawMaxRef = useRef(Number.NEGATIVE_INFINITY);
+  const pitchMinRef = useRef(Number.POSITIVE_INFINITY);
+  const pitchMaxRef = useRef(Number.NEGATIVE_INFINITY);
+  const challengeRef = useRef<"horizontal" | "vertical">("horizontal");
+  const [challengePrompt, setChallengePrompt] = useState<string>("Turn your head left & right");
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -613,6 +620,17 @@ export function FaceScanner({
     earBaselineRef.current = null;
     yawMinRef.current = Number.POSITIVE_INFINITY;
     yawMaxRef.current = Number.NEGATIVE_INFINITY;
+    pitchMinRef.current = Number.POSITIVE_INFINITY;
+    pitchMaxRef.current = Number.NEGATIVE_INFINITY;
+    // Pick a random challenge axis for this scan
+    const axis: "horizontal" | "vertical" =
+      Math.random() < 0.5 ? "horizontal" : "vertical";
+    challengeRef.current = axis;
+    setChallengePrompt(
+      axis === "horizontal"
+        ? "Turn your head left & right ↔"
+        : "Look up & down ↕"
+    );
     samplesRef.current = [];
     landmarkAccumRef.current = [];
     totalSamplesRef.current = 0;
@@ -689,16 +707,22 @@ export function FaceScanner({
       // floating labels with live values per metric.
       drawAROverlay(ctx, points, box, avg, W, H, pose);
 
-      // ─── Liveness via head-turn (replaces unreliable blink/EAR check) ───
-      // Track the yaw range observed during the scan. If max(yaw) - min(yaw)
-      // > ~0.3 rad (~17°), the user has demonstrably moved their head — a
-      // still photo can't fake that. Falls back to existing time-based
-      // timeouts if the user holds perfectly still.
+      // ─── Liveness via random-axis head movement ────────────────────
+      // We picked a random challenge axis at scan start; require the
+      // user to actually demonstrate movement in THAT axis. Defeats
+      // looped videos / photos / single-axis recordings.
       yawMinRef.current = Math.min(yawMinRef.current, pose.yaw);
       yawMaxRef.current = Math.max(yawMaxRef.current, pose.yaw);
+      pitchMinRef.current = Math.min(pitchMinRef.current, pose.pitch);
+      pitchMaxRef.current = Math.max(pitchMaxRef.current, pose.pitch);
       const yawRange = yawMaxRef.current - yawMinRef.current;
-      if (yawRange >= 0.30 && !blinksRef.current) {
-        blinksRef.current = 1; // re-using the variable for "liveness ok"
+      const pitchRange = pitchMaxRef.current - pitchMinRef.current;
+      const challengeMet =
+        challengeRef.current === "horizontal"
+          ? yawRange >= 0.30
+          : pitchRange >= 0.25;
+      if (challengeMet && !blinksRef.current) {
+        blinksRef.current = 1;
         setBlinks(1);
       }
       // Still update EAR for HUD display, but don't gate on it.
@@ -900,7 +924,7 @@ export function FaceScanner({
           </div>
           {progress >= 0.4 && blinks === 0 && (
             <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
-              <span>Turn your head left & right ↔</span>
+              <span>{challengePrompt}</span>
               <button
                 onClick={() => liveScore && finalize(liveScore, true)}
                 className="rounded-md border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"

@@ -12,6 +12,7 @@ import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
 import { playSfx, vibrate } from "@/lib/audio";
 import { applyMatchResult } from "@/lib/season";
+import { Confetti } from "@/components/Confetti";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -507,7 +508,9 @@ export function LiveMatch({
         body: JSON.stringify({
           peerId: myId,
           elo: user.elo,
-          placementsLeft: user.placementsLeft
+          placementsLeft: user.placementsLeft,
+          username: user.username || "",
+          blocklist: user.blockedUsers
         })
       });
       const enqJson = await enqRes.json();
@@ -640,10 +643,24 @@ export function LiveMatch({
     });
     conn.on("data", (data) => handleMsg(data as LiveMsg));
     conn.on("close", () => {
-      if (phase !== "result") {
-        setError("Opponent disconnected.");
-        setPhase("error");
+      if (phase === "result") return;
+      // If the opponent rage-quits mid-match, award the user the win
+      // (counted as a clean 2-0 sweep) and apply normal ELO. The other
+      // side will flag this as their loss when they next come online —
+      // for now we just protect the still-connected player from getting
+      // a "match cancelled" with no progress.
+      if (opponent && (phase === "scanning" || phase === "between" || phase === "vs")) {
+        const placeholder: { me: number; opp: number }[] =
+          scoreboard.length > 0 ? [...scoreboard] : [];
+        // Pad with auto-wins so myWins>=2.
+        while (placeholder.reduce((s, r) => s + (r.me > r.opp ? 1 : 0), 0) < 2) {
+          placeholder.push({ me: 100, opp: 0 });
+        }
+        finalizeMatch(true, 2, 0);
+        return;
       }
+      setError("Opponent disconnected.");
+      setPhase("error");
     });
   }
 
@@ -1601,7 +1618,23 @@ function Result({
   opponent: { username: string; elo: number };
   onClose: () => void;
 }) {
-  const { user } = useUser();
+  const { user, update } = useUser();
+  const [blocked, setBlocked] = useState(false);
+  const isBlocked = blocked || user.blockedUsers.includes(opponent.username);
+  const blockOpponent = () => {
+    if (isBlocked) return;
+    update((prev) => ({
+      blockedUsers: prev.blockedUsers.includes(opponent.username)
+        ? prev.blockedUsers
+        : [...prev.blockedUsers, opponent.username]
+    }));
+    setBlocked(true);
+  };
+  // Confetti only on big wins (>=20 ELO gained or 2-0 sweep)
+  const myWins = result.rounds.reduce((s, r) => s + (r.me > r.opp ? 1 : 0), 0);
+  const oppWins = result.rounds.reduce((s, r) => s + (r.opp > r.me ? 1 : 0), 0);
+  const fireConfetti =
+    result.won && (result.delta >= 20 || (myWins >= 2 && oppWins === 0));
   const [sharing, setSharing] = useState(false);
   const [shareDone, setShareDone] = useState<"shared" | "downloaded" | null>(null);
 
@@ -1666,6 +1699,7 @@ function Result({
       animate={{ opacity: 1, scale: 1 }}
       className="glass rounded-2xl px-8 py-12 text-center"
     >
+      {fireConfetti && <Confetti trigger={1} />}
       <p
         className="label-xs"
         style={{ color: result.won ? "#34d399" : "#f43f5e" }}
@@ -1698,6 +1732,13 @@ function Result({
               : shareDone === "downloaded"
                 ? "Saved ✓"
                 : "Share Result"}
+        </button>
+        <button
+          onClick={blockOpponent}
+          disabled={isBlocked}
+          className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-6 py-3 text-xs uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-500/60 hover:bg-rose-500/10 disabled:opacity-40"
+        >
+          {isBlocked ? "Blocked ✓" : "Block"}
         </button>
         <button
           onClick={onClose}

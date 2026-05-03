@@ -25,7 +25,13 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { peerId?: string; elo?: number; placementsLeft?: number } = {};
+  let body: {
+    peerId?: string;
+    elo?: number;
+    placementsLeft?: number;
+    username?: string;
+    blocklist?: string[];
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -37,6 +43,10 @@ export async function POST(req: Request) {
   const placementsLeft = Number.isFinite(body.placementsLeft)
     ? Number(body.placementsLeft)
     : 0;
+  const username = (body.username || "").toLowerCase();
+  const blocklist = Array.isArray(body.blocklist)
+    ? body.blocklist.map((u) => String(u).toLowerCase())
+    : [];
 
   if (!peerId || typeof peerId !== "string" || peerId.length > 80) {
     return NextResponse.json({ error: "invalid_peerId" }, { status: 400 });
@@ -58,7 +68,23 @@ export async function POST(req: Request) {
       (await redis.hgetall<Record<string, string>>(peerKey(oppId))) || {};
     const oppElo = parseInt(oppData.elo || "1000", 10) || 1000;
     const oppPlacements = parseInt(oppData.placementsLeft || "0", 10) || 0;
+    const oppUsername = (oppData.username || "").toLowerCase();
+    const oppBlocklist: string[] = (() => {
+      try {
+        return JSON.parse(oppData.blocklist || "[]") as string[];
+      } catch {
+        return [];
+      }
+    })();
     const eitherCalibrating = placementsLeft > 0 || oppPlacements > 0;
+
+    // Block-list: never match users who blocked each other.
+    if (
+      (oppUsername && blocklist.includes(oppUsername)) ||
+      (username && oppBlocklist.includes(username))
+    ) {
+      continue;
+    }
 
     if (!eitherCalibrating && Math.abs(oppElo - elo) > TIGHT_BAND) {
       continue;
@@ -95,7 +121,9 @@ export async function POST(req: Request) {
   await redis.hset(peerKey(peerId), {
     elo: String(info.elo),
     placementsLeft: String(info.placementsLeft),
-    ts: String(info.ts)
+    ts: String(info.ts),
+    username,
+    blocklist: JSON.stringify(blocklist.slice(0, 50))
   });
   await redis.expire(peerKey(peerId), WAIT_TTL_SEC);
 

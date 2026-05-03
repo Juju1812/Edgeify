@@ -9,6 +9,7 @@ import {
   rewardAtLevel,
   xpForLevel
 } from "@/lib/season";
+import { weeklyChallenges } from "@/lib/challenges";
 import { useUser } from "@/lib/user-context";
 
 export default function SeasonPage() {
@@ -130,6 +131,50 @@ export default function SeasonPage() {
                   );
                 }
               )}
+            </div>
+          </div>
+
+          {/* Weekly challenges */}
+          <div className="mt-8">
+            <h2 className="label-xs mb-3">Weekly Challenges · Rotate Mondays UTC</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {weeklyChallenges().map((c) => {
+                const p = c.progress(user);
+                const done = c.done(user);
+                return (
+                  <div
+                    key={c.id}
+                    className={
+                      "glass rounded-xl p-4 transition " +
+                      (done ? "border-emerald-400/40 bg-emerald-500/5" : "")
+                    }
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="text-2xl">{c.emoji}</div>
+                      <span
+                        className={
+                          "rounded-full px-2 py-0.5 text-[9px] uppercase tracking-[0.22em] " +
+                          (done
+                            ? "bg-emerald-500/20 text-emerald-200"
+                            : "bg-mog-pink/10 text-mog-pink")
+                        }
+                      >
+                        +{c.reward} XP
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm font-semibold uppercase tracking-[0.16em] text-white">
+                      {c.title}
+                    </p>
+                    <p className="mt-1 text-xs text-white/50">{c.description}</p>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/5">
+                      <div
+                        className="h-full bg-gradient-to-r from-mog-violet to-mog-pink transition-all"
+                        style={{ width: `${p * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

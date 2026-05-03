@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
-import { rankFromElo } from "@/lib/rank";
+import { rankFromElo, RANKS } from "@/lib/rank";
 import { useUser } from "@/lib/user-context";
 import { ACHIEVEMENTS, unlockedAchievements } from "@/lib/achievements";
+import type { MatchRecord } from "@/lib/types";
 
 export default function ProfilePage() {
   const { user, status, ready, update, deleteAccount } = useUser();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [replay, setReplay] = useState<MatchRecord | null>(null);
 
   if (!ready)
     return (
@@ -129,9 +132,11 @@ export default function ProfilePage() {
         ) : (
           <div className="glass overflow-hidden rounded-2xl">
             {user.matchHistory.map((m) => (
-              <div
+              <button
                 key={m.id}
-                className="grid grid-cols-[5rem_1fr_4rem_5rem] gap-3 border-b border-white/[0.02] px-5 py-3 text-sm last:border-b-0"
+                onClick={() => setReplay(m)}
+                disabled={!m.rounds || m.rounds.length === 0}
+                className="grid w-full grid-cols-[5rem_1fr_4rem_5rem] gap-3 border-b border-white/[0.02] px-5 py-3 text-left text-sm transition last:border-b-0 enabled:hover:bg-white/[0.02] disabled:cursor-default"
               >
                 <span
                   className="text-xs font-bold uppercase tracking-[0.22em]"
@@ -141,6 +146,16 @@ export default function ProfilePage() {
                 </span>
                 <span className="truncate uppercase tracking-[0.18em] text-white/80">
                   vs {m.opponentName}
+                  {m.practice && (
+                    <span className="ml-2 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[8px] tracking-[0.22em] text-cyan-300">
+                      PRACTICE
+                    </span>
+                  )}
+                  {m.mode && m.mode !== "bo3" && (
+                    <span className="ml-2 rounded-full bg-mog-violet/10 px-2 py-0.5 text-[8px] tracking-[0.22em] text-mog-violet">
+                      {m.mode.toUpperCase()}
+                    </span>
+                  )}
                 </span>
                 <span className="text-right font-mono text-xs text-white/60">
                   {m.myScore}–{m.oppScore}
@@ -152,11 +167,19 @@ export default function ProfilePage() {
                   {m.eloDelta >= 0 ? "+" : ""}
                   {m.eloDelta}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </div>
+
+      {/* ELO progression chart */}
+      {user.matchHistory.length >= 2 && (
+        <EloChart history={user.matchHistory} currentElo={user.elo} />
+      )}
+
+      {/* Replay modal */}
+      <ReplayModal match={replay} onClose={() => setReplay(null)} />
 
       <div className="mt-10">
         <h2 className="label-xs mb-3">Privacy</h2>
@@ -175,6 +198,41 @@ export default function ProfilePage() {
               </span>
             </span>
           </label>
+        </div>
+      </div>
+
+      {/* Blocked users */}
+      <div className="mt-10">
+        <h2 className="label-xs mb-3">Block List</h2>
+        <div className="glass rounded-2xl p-5">
+          {user.blockedUsers.length === 0 ? (
+            <p className="text-xs text-white/40">
+              You haven&apos;t blocked anyone. Block someone from a match to
+              never be matched with them again.
+            </p>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {user.blockedUsers.map((u) => (
+                <li
+                  key={u}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs uppercase tracking-[0.18em] text-white/70"
+                >
+                  {u}
+                  <button
+                    onClick={() =>
+                      update((prev) => ({
+                        blockedUsers: prev.blockedUsers.filter((x) => x !== u)
+                      }))
+                    }
+                    className="text-white/40 hover:text-white"
+                    title={`Unblock ${u}`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -232,5 +290,197 @@ function Stat({
       </span>
       <span className="font-mono text-base text-white">{value}</span>
     </div>
+  );
+}
+
+/**
+ * Compact line chart of ELO over the last N matches. Pure SVG, no
+ * external charting dep. Tier band colors shaded behind the line.
+ */
+function EloChart({
+  history,
+  currentElo
+}: {
+  history: MatchRecord[];
+  currentElo: number;
+}) {
+  // Reconstruct ELO over time: start with currentElo, walk back applying
+  // -delta to recover the pre-match value at each step.
+  const ranked = [...history].filter((m) => !m.practice).slice(0, 40);
+  if (ranked.length < 2) return null;
+  const series: number[] = [currentElo];
+  let cur = currentElo;
+  for (const m of ranked) {
+    cur -= m.eloDelta;
+    series.unshift(cur);
+  }
+  const W = 800;
+  const H = 200;
+  const PAD = 24;
+  const minE = Math.max(0, Math.min(...series) - 50);
+  const maxE = Math.max(...series) + 50;
+  const xStep = (W - 2 * PAD) / Math.max(1, series.length - 1);
+  const y = (e: number) => H - PAD - ((e - minE) / (maxE - minE)) * (H - 2 * PAD);
+
+  const linePath = series
+    .map((e, i) => `${i === 0 ? "M" : "L"} ${PAD + i * xStep} ${y(e)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${PAD + (series.length - 1) * xStep} ${H - PAD} L ${PAD} ${H - PAD} Z`;
+
+  return (
+    <div className="mt-10">
+      <h2 className="label-xs mb-3">ELO Progression</h2>
+      <div className="glass rounded-2xl p-5">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="h-auto w-full"
+          preserveAspectRatio="none"
+        >
+          {/* Tier band shading */}
+          {RANKS.map((r, i) => {
+            const next = RANKS[i + 1];
+            const top = next ? Math.min(maxE, next.floor) : maxE;
+            const bot = Math.max(minE, r.floor);
+            if (bot >= top) return null;
+            return (
+              <rect
+                key={r.tier}
+                x={PAD}
+                y={y(top)}
+                width={W - 2 * PAD}
+                height={y(bot) - y(top)}
+                fill={r.color}
+                opacity={0.06}
+              />
+            );
+          })}
+          <path d={areaPath} fill="url(#eloFill)" opacity={0.45} />
+          <path d={linePath} stroke="#a855f7" strokeWidth={2} fill="none" />
+          {series.map((e, i) => (
+            <circle
+              key={i}
+              cx={PAD + i * xStep}
+              cy={y(e)}
+              r={i === series.length - 1 ? 5 : 2}
+              fill={i === series.length - 1 ? "#d946ef" : "#a855f7"}
+            />
+          ))}
+          <defs>
+            <linearGradient id="eloFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#a855f7" stopOpacity="0.5" />
+              <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div className="mt-2 flex items-center justify-between text-[10px] uppercase tracking-[0.22em] text-white/40">
+          <span>{ranked.length} matches</span>
+          <span>peak {Math.max(...series)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReplayModal({
+  match,
+  onClose
+}: {
+  match: MatchRecord | null;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {match && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+        >
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <motion.div
+            initial={{ y: 20, opacity: 0, scale: 0.97 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 20, opacity: 0, scale: 0.97 }}
+            onClick={(e) => e.stopPropagation()}
+            className="glass relative w-full max-w-md p-6"
+          >
+            <p className="label-xs">Match Replay</p>
+            <h2 className="heading-card mt-2 text-2xl">
+              vs {match.opponentName}
+            </h2>
+            <p className="mt-1 text-xs text-white/50">
+              {new Date(match.playedAt).toLocaleString()}
+              {match.mode && match.mode !== "bo3" ? ` · ${match.mode.toUpperCase()}` : ""}
+            </p>
+
+            <div className="mt-4 flex items-center justify-between">
+              <span
+                className="text-2xl font-bold tracking-wider"
+                style={{ color: match.won ? "#34d399" : "#f43f5e" }}
+              >
+                {match.myScore} – {match.oppScore}
+              </span>
+              <span
+                className="font-mono text-lg"
+                style={{ color: match.eloDelta >= 0 ? "#22d3ee" : "#f43f5e" }}
+              >
+                {match.eloDelta >= 0 ? "+" : ""}
+                {match.eloDelta} ELO
+              </span>
+            </div>
+
+            {match.rounds && match.rounds.length > 0 && (
+              <div className="mt-5 space-y-3">
+                {match.rounds.map((r, i) => {
+                  const won = r.me > r.opp;
+                  const tied = r.me === r.opp;
+                  const total = r.me + r.opp || 1;
+                  const myPct = (r.me / total) * 100;
+                  return (
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        <span>
+                          R{i + 1} · {r.criterion}
+                        </span>
+                        <span
+                          style={{
+                            color: tied ? "#fff" : won ? "#34d399" : "#f43f5e"
+                          }}
+                        >
+                          {tied ? "TIED" : won ? "WON" : "LOST"}
+                        </span>
+                      </div>
+                      <div className="flex h-6 overflow-hidden rounded-md">
+                        <div
+                          className="flex items-center justify-end bg-emerald-500/30 pr-2 text-[10px] font-bold text-emerald-100"
+                          style={{ width: `${myPct}%` }}
+                        >
+                          {r.me}
+                        </div>
+                        <div
+                          className="flex items-center justify-start bg-rose-500/30 pl-2 text-[10px] font-bold text-rose-100"
+                          style={{ width: `${100 - myPct}%` }}
+                        >
+                          {r.opp}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={onClose}
+              className="mt-6 w-full rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-xs uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+            >
+              Close
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
