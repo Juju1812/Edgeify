@@ -315,7 +315,7 @@ function ModeSelect({ onPick }: { onPick: (m: Mode) => void }) {
         </div>
         <h3 className="heading-card text-xl">Live Match</h3>
         <p className="mt-2 text-sm text-white/60">
-          Real face-off against another EdgeIfy player. You see each other&apos;s
+          Real face-off against another Edgify player. You see each other&apos;s
           camera, the AI scans both faces in real time, and the winner is
           declared at the end.
         </p>

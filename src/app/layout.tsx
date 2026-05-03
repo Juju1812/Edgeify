@@ -3,12 +3,12 @@ import { UserProvider } from "@/lib/user-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EdgeIfy — Ranked 1v1 Face-Offs",
+  title: "Edgify — Ranked 1v1 Face-Offs",
   description:
-    "EdgeIfy is an entertainment platform that scores webcam selfies on geometric facial measurements (symmetry, proportions, jawline) and pits players in 1v1 ranked matches. EdgeScore is a fun metric, not an objective beauty judgment.",
-  keywords: ["edgeify", "face-off", "ranked", "1v1", "leaderboard"],
+    "Edgify is an entertainment platform that scores webcam selfies on geometric facial measurements (symmetry, proportions, jawline) and pits players in 1v1 ranked matches. EdgeScore is a fun metric, not an objective beauty judgment.",
+  keywords: ["edgify", "face-off", "ranked", "1v1", "leaderboard"],
   openGraph: {
-    title: "EdgeIfy",
+    title: "Edgify",
     description: "Ranked 1v1 face-offs. Climb the leaderboard.",
     type: "website"
   },

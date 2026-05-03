@@ -1,4 +1,4 @@
-# EdgeIfy
+# Edgify
 
 Ranked 1v1 face-off platform. Webcam-only capture, geometric "EdgeScore" entertainment metric (symmetry / proportions / jawline / canthal tilt), ELO-based matchmaking, global leaderboard. Inspired by gaming-tournament UI; framed as entertainment, **not** an objective beauty judgment.
 
@@ -124,4 +124,4 @@ Designed for Vercel:
 
 ## A note on framing
 
-EdgeIfy is a **game**. The EdgeScore is a deterministic composite of geometric measurements (golden-ratio proportions, bilateral symmetry, jawline angle, canthal tilt). It does not — and cannot — measure attractiveness. Every page carries that disclaimer. There's also a `Touch grass →` link in the footer.
+Edgify is a **game**. The EdgeScore is a deterministic composite of geometric measurements (golden-ratio proportions, bilateral symmetry, jawline angle, canthal tilt). It does not — and cannot — measure attractiveness. Every page carries that disclaimer. There's also a `Touch grass →` link in the footer.

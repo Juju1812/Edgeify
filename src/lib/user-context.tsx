@@ -11,8 +11,8 @@ import {
 } from "react";
 import { DEFAULT_USER, getStatus, type UserState, type UserStatus } from "./types";
 
-const STORAGE_KEY = "edgeify:user:v1";
-const TOKEN_KEY = "edgeify:auth:token:v1";
+const STORAGE_KEY = "edgify:user:v1";
+const TOKEN_KEY = "edgify:auth:token:v1";
 
 type AuthError = { error: string; message?: string };
 

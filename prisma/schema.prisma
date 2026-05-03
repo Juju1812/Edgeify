@@ -1,4 +1,4 @@
-// EdgeIfy database schema.
+// Edgify database schema.
 // Designed for PostgreSQL. Switch the provider to "sqlite" + change DATABASE_URL
 // to "file:./dev.db" for zero-setup local development.
 

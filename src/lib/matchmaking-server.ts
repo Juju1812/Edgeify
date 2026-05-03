@@ -16,9 +16,9 @@
 
 import { Redis } from "@upstash/redis";
 
-export const QUEUE_KEY = "edgeify:queue:v1";
-export const peerKey = (id: string) => `edgeify:peer:v1:${id}`;
-export const pairKey = (id: string) => `edgeify:pair:v1:${id}`;
+export const QUEUE_KEY = "edgify:queue:v1";
+export const peerKey = (id: string) => `edgify:peer:v1:${id}`;
+export const pairKey = (id: string) => `edgify:pair:v1:${id}`;
 
 /** Time a queued peer is allowed to wait before its peer hash expires. */
 export const WAIT_TTL_SEC = 60;

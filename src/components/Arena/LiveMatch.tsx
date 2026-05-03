@@ -14,9 +14,9 @@ type PeerJSCtor = typeof import("peerjs").default;
 const MODEL_URL =
   "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
 
-// Namespace key so two simultaneous EdgeIfy users don't collide on the
+// Namespace key so two simultaneous Edgify users don't collide on the
 // public PeerJS broker with anyone else using a 6-char code.
-const PEER_PREFIX = "edgeify-arena-";
+const PEER_PREFIX = "edgify-arena-";
 
 const ROUND_CRITERIA = [
   { key: "symmetry", label: "Symmetry" },
@@ -927,7 +927,7 @@ function Lobby({
           </div>
           <h3 className="heading-card text-2xl">Random Match</h3>
           <p className="mt-2 max-w-2xl text-sm text-white/60">
-            Get instantly paired with another EdgeIfy player who&apos;s online
+            Get instantly paired with another Edgify player who&apos;s online
             right now. Real opponent. Real video. The AI scans both faces and
             declares the winner.
           </p>

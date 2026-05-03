@@ -12,7 +12,7 @@ export default function LeaderboardPage() {
   const [query, setQuery] = useState("");
 
   // No more seed-user padding — the leaderboard now reflects real
-  // EdgeIfy users only. Until we wire up server-side ranking storage,
+  // Edgify users only. Until we wire up server-side ranking storage,
   // that means just the current device's user (when ranked + visible).
   // Bots are kept out of the public board on purpose.
   const all = useMemo<SeedUser[]>(() => {
@@ -84,7 +84,7 @@ export default function LeaderboardPage() {
           <div className="text-5xl">👑</div>
           <h2 className="heading-card mt-4 text-2xl">No ranked players yet</h2>
           <p className="mx-auto mt-3 max-w-md text-sm text-white/50">
-            Be the first to climb the EdgeIfy leaderboard. Calibrate in The Lab,
+            Be the first to climb the Edgify leaderboard. Calibrate in The Lab,
             finish your 5 placement matches, and you&apos;ll appear here.
           </p>
           <Link
