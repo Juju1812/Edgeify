@@ -151,7 +151,27 @@ function scoreFor(s: EdgeScoreBreakdown, k: CriterionKey): number {
   return (typeof raw === "number" ? raw : 0) * 100;
 }
 
-export function LiveMatch({ onClose }: { onClose: () => void }) {
+export type LiveMatchAuto = {
+  /** "host" registers the given peerId and waits for `opponentPeerId`
+   *  to dial; "guest" creates a random peer and dials `opponentPeerId`. */
+  role: "host" | "guest";
+  myPeerId: string;
+  opponentPeerId: string;
+};
+
+export function LiveMatch({
+  onClose,
+  auto,
+  onMatchEnd
+}: {
+  onClose: () => void;
+  /** When provided, skip the lobby and auto-pair. Used by the
+   *  tournament flow which derives peer IDs from the bracket. */
+  auto?: LiveMatchAuto;
+  /** Fired after the match concludes (after Result screen renders).
+   *  Tournament uses this to advance the bracket. */
+  onMatchEnd?: (result: { won: boolean }) => void;
+}) {
   const { user, update } = useUser();
 
   // ─── State ────────────────────────────────────────────────────────
@@ -280,6 +300,26 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-pair flow used by tournament brackets — once camera + models
+  // are ready we skip the lobby entirely.
+  useEffect(() => {
+    if (!auto) return;
+    if (phase !== "lobby") return;
+    if (auto.role === "host") {
+      void startAutoHost(auto.myPeerId);
+    } else {
+      void startAutoGuest(auto.myPeerId, auto.opponentPeerId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, phase]);
+
+  // Bubble match outcomes to the tournament orchestrator.
+  useEffect(() => {
+    if (!onMatchEnd || !matchResult) return;
+    onMatchEnd({ won: matchResult.won });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchResult]);
+
   function teardown() {
     if (scanRafRef.current) cancelAnimationFrame(scanRafRef.current);
     scanRafRef.current = null;
@@ -297,6 +337,61 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     dataConnRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
+  }
+
+  // ─── Tournament auto-pair (bypasses code entry) ───────────────────
+  async function startAutoHost(myId: string) {
+    try {
+      isHostRef.current = true;
+      setPhase("creating");
+      const PeerJS = (await import("peerjs")).default;
+      const peer = new PeerJS(myId, { debug: 0 });
+      peerRef.current = peer;
+
+      peer.on("error", (err) => {
+        setError(`Network error: ${err.type || "unknown"}`);
+        setPhase("error");
+      });
+      peer.on("call", (call) => {
+        call.answer(localStreamRef.current!);
+        call.on("stream", attachRemoteStream);
+      });
+      peer.on("connection", (conn) => {
+        wireDataConnection(conn);
+      });
+    } catch (e: unknown) {
+      setError((e as { message?: string }).message || "Couldn't host match.");
+      setPhase("error");
+    }
+  }
+
+  async function startAutoGuest(myId: string, oppId: string) {
+    try {
+      isHostRef.current = false;
+      setPhase("joining");
+      const PeerJS = (await import("peerjs")).default;
+      const peer = new PeerJS(myId, { debug: 0 });
+      peerRef.current = peer;
+
+      peer.on("error", (err) => {
+        setError(
+          err.type === "peer-unavailable"
+            ? "Opponent isn't online yet — wait for them to load."
+            : `Network error: ${err.type || "unknown"}`
+        );
+        setPhase("error");
+      });
+
+      peer.on("open", () => {
+        const conn = peer.connect(oppId, { reliable: true });
+        wireDataConnection(conn);
+        const call = peer.call(oppId, localStreamRef.current!);
+        call.on("stream", attachRemoteStream);
+      });
+    } catch (e: unknown) {
+      setError((e as { message?: string }).message || "Couldn't join match.");
+      setPhase("error");
+    }
   }
 
   // ─── Hosting ──────────────────────────────────────────────────────
