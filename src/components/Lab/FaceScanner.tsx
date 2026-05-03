@@ -143,14 +143,26 @@ export function FaceScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const blinksRef = useRef(0);
-  const earWasLowRef = useRef(false);
   const samplesRef = useRef<EdgeScoreBreakdown[]>([]);
+  const totalSamplesRef = useRef(0);
+  const scanStartRef = useRef(0);
+
+  // Liveness state: adaptive thresholds derived from a baseline observed
+  // during the first ~0.5s of the scan. Different faces have different
+  // resting-EAR — a fixed threshold misses blinks for many users.
+  const earBaselineSamplesRef = useRef<number[]>([]);
+  const earBaselineRef = useRef<number | null>(null);
+  const earBelowFramesRef = useRef(0);
+  const earWasLowRef = useRef(false);
+  const lastEarRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0); // 0..1
   const [liveScore, setLiveScore] = useState<EdgeScoreBreakdown | null>(null);
   const [blinks, setBlinks] = useState(0);
+  const [liveEar, setLiveEar] = useState(0);
+  const [skippedLiveness, setSkippedLiveness] = useState(false);
 
   // ─── Model + camera bootstrap ───────────────────────────────────────
   async function start() {
@@ -233,8 +245,15 @@ export function FaceScanner({
     setProgress(0);
     blinksRef.current = 0;
     earWasLowRef.current = false;
+    earBelowFramesRef.current = 0;
+    earBaselineSamplesRef.current = [];
+    earBaselineRef.current = null;
     samplesRef.current = [];
+    totalSamplesRef.current = 0;
+    scanStartRef.current = performance.now();
     setBlinks(0);
+    setLiveEar(0);
+    setSkippedLiveness(false);
     loop();
   }
 
@@ -280,6 +299,7 @@ export function FaceScanner({
       // Sampling
       const sample = computeEdgeScore(points);
       samplesRef.current.push(sample);
+      totalSamplesRef.current += 1;
       // Keep last 30 samples for stability
       if (samplesRef.current.length > 30) samplesRef.current.shift();
 
@@ -287,24 +307,64 @@ export function FaceScanner({
       const avg = averageSamples(samplesRef.current);
       setLiveScore(avg);
 
-      // Liveness — count blinks
+      // ─── Liveness with adaptive thresholds ─────────────────────────
       const eyes = getEyePoints(points);
       const ear =
         (eyeAspectRatio(eyes.left) + eyeAspectRatio(eyes.right)) / 2;
-      if (ear < 0.21 && !earWasLowRef.current) {
-        earWasLowRef.current = true;
-      } else if (ear > 0.27 && earWasLowRef.current) {
-        earWasLowRef.current = false;
-        blinksRef.current += 1;
-        setBlinks(blinksRef.current);
+      lastEarRef.current = ear;
+      setLiveEar(ear);
+
+      // Establish a baseline from the first ~12 frames (~0.6s at 20fps).
+      // Use the median (sorted middle value) so a stray closed-eye frame
+      // doesn't anchor the baseline too low.
+      if (earBaselineRef.current === null) {
+        earBaselineSamplesRef.current.push(ear);
+        if (earBaselineSamplesRef.current.length >= 12) {
+          const sorted = [...earBaselineSamplesRef.current].sort();
+          earBaselineRef.current = sorted[Math.floor(sorted.length / 2)];
+        }
+      } else {
+        const baseline = earBaselineRef.current;
+        const closedThresh = baseline * 0.65;
+        const openThresh = baseline * 0.85;
+
+        // Two-frame debounce: require sustained "closed" before flipping.
+        if (ear < closedThresh) {
+          earBelowFramesRef.current += 1;
+          if (earBelowFramesRef.current >= 2 && !earWasLowRef.current) {
+            earWasLowRef.current = true;
+          }
+        } else {
+          earBelowFramesRef.current = 0;
+          if (ear > openThresh && earWasLowRef.current) {
+            earWasLowRef.current = false;
+            blinksRef.current += 1;
+            setBlinks(blinksRef.current);
+          }
+        }
       }
 
-      // Progress is samples collected up to 30 (about 1.5 sec at 20fps)
-      setProgress(Math.min(1, samplesRef.current.length / 30));
+      // Progress: roll up to 100% over enough total samples to be stable.
+      const elapsed = performance.now() - scanStartRef.current;
+      const sampleProgress = Math.min(1, totalSamplesRef.current / 30);
+      const timeProgress = Math.min(1, elapsed / 4000); // 4s soft target
+      setProgress(Math.max(sampleProgress, timeProgress));
 
-      // Once we have a stable read AND at least 1 blink → complete
-      if (samplesRef.current.length >= 30 && blinksRef.current >= 1) {
-        finalize(avg);
+      // Completion gate:
+      //   1. Got at least 30 samples AND a blink → ideal path.
+      //   2. Got 30 samples AND it's been >7s → liveness check timed
+      //      out, accept anyway (mark as skipped).
+      const enoughSamples = totalSamplesRef.current >= 30;
+      const blinkOk = blinksRef.current >= 1;
+      const livenessTimeout = elapsed > 7000;
+
+      if (enoughSamples && blinkOk) {
+        finalize(avg, false);
+        return;
+      }
+      if (enoughSamples && livenessTimeout) {
+        setSkippedLiveness(true);
+        finalize(avg, true);
         return;
       }
     } else {
@@ -316,7 +376,7 @@ export function FaceScanner({
     rafRef.current = requestAnimationFrame(loop);
   }
 
-  function finalize(avg: EdgeScoreBreakdown) {
+  function finalize(avg: EdgeScoreBreakdown, _skippedLiveness: boolean) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     setPhase("computing");
@@ -433,11 +493,14 @@ export function FaceScanner({
       </div>
 
       {(phase === "scanning" || phase === "liveness") && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/50">
             <span>Scanning</span>
             <span>
-              {Math.round(progress * 100)}% · Blinks {blinks}/1
+              {Math.round(progress * 100)}% · Blinks {blinks}/1 · EAR{" "}
+              <span className="font-mono text-white/80">
+                {liveEar.toFixed(2)}
+              </span>
             </span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-white/5">
@@ -447,6 +510,17 @@ export function FaceScanner({
             />
           </div>
           {liveScore && <LiveMetrics s={liveScore} />}
+          {progress >= 0.99 && blinks === 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
+              <span>Trouble detecting blinks?</span>
+              <button
+                onClick={() => liveScore && finalize(liveScore, true)}
+                className="rounded-md border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"
+              >
+                Skip liveness →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
