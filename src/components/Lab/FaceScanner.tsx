@@ -692,14 +692,30 @@ export function FaceScanner({
       setProgress(Math.max(sampleProgress, timeProgress));
 
       const enoughSamples = totalSamplesRef.current >= TARGET_SAMPLES;
+      const someSamples = totalSamplesRef.current >= 10;
       const blinkOk = blinksRef.current >= 1;
-      const livenessTimeout = elapsed > 8000;
 
+      // Layered completion gates so the scan always finalizes:
+      //   1. Ideal: 50+ samples AND a registered blink → top quality.
+      //   2. After 6s with 50+ samples → skip liveness, accept.
+      //   3. After 10s with 10+ samples → accept partial scan.
+      //   4. After 13s regardless → emergency exit; uses whatever
+      //      score the loop has converged on (or current-frame score).
       if (enoughSamples && blinkOk) {
         finalize(avg, false);
         return;
       }
-      if (enoughSamples && livenessTimeout) {
+      if (enoughSamples && elapsed > 6000) {
+        setSkippedLiveness(true);
+        finalize(avg, true);
+        return;
+      }
+      if (someSamples && elapsed > 10000) {
+        setSkippedLiveness(true);
+        finalize(avg, true);
+        return;
+      }
+      if (elapsed > 13000) {
         setSkippedLiveness(true);
         finalize(avg, true);
         return;

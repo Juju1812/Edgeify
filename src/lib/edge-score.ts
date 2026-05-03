@@ -77,10 +77,13 @@ export function estimatePose(points: Pt[]): FacePose {
   const pitchRatio = noseToChin / noseToBrow;
   const pitch = (pitchRatio - 1.0) * 0.6;
 
+  // Be permissive: a reasonably centered face should count as scoreable.
+  // Symmetry/cheekbone metrics still benefit from frontalize() rotation
+  // even when pose is mildly off, so we don't need a strict gate.
   const goodForScoring =
-    Math.abs(roll) < 0.18 && // ~10°
-    Math.abs(yaw) < 0.22 && // ~12°
-    Math.abs(pitch) < 0.35;
+    Math.abs(roll) < 0.32 && // ~18°
+    Math.abs(yaw) < 0.32 && // ~18°
+    Math.abs(pitch) < 0.55;
 
   return { roll, yaw, pitch, goodForScoring };
 }
