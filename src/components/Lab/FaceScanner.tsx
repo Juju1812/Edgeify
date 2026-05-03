@@ -29,6 +29,70 @@ export type ScanResult = {
   faceDataUrl: string;
 };
 
+/**
+ * Try a chain of progressively-loosened constraints. Many desktops have
+ * webcams that don't expose `facingMode`, so a strict {facingMode:"user"}
+ * fails with NotFoundError on hardware that's perfectly capable of front-
+ * facing capture. Walk down the list until one works.
+ */
+async function getCameraStream(): Promise<MediaStream> {
+  const attempts: MediaStreamConstraints[] = [
+    {
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: { ideal: "user" }
+      },
+      audio: false
+    },
+    { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+    { video: true, audio: false }
+  ];
+  let lastErr: unknown = new Error("No camera available.");
+  for (const c of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch (e) {
+      lastErr = e;
+      const name = (e as DOMException)?.name;
+      // Permission denied / in-use are not "try a looser constraint"
+      // problems — bail immediately so the user sees the right message.
+      if (
+        name === "NotAllowedError" ||
+        name === "PermissionDeniedError" ||
+        name === "NotReadableError" ||
+        name === "TrackStartError" ||
+        name === "SecurityError"
+      ) {
+        throw e;
+      }
+    }
+  }
+  throw lastErr;
+}
+
+function humanizeCameraError(e: unknown): string {
+  const err = e as { name?: string; message?: string } | undefined;
+  switch (err?.name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      return "Camera permission was denied. Click the camera icon in your browser's address bar, set it to Allow, then retry.";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "No camera detected. Connect a webcam (or close any app that might be holding it — Zoom, Teams, OBS) and retry.";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "Camera is in use by another app. Close Zoom, Teams, OBS, or any browser tab using the camera and retry.";
+    case "OverconstrainedError":
+    case "ConstraintNotSatisfiedError":
+      return "This camera doesn't support the requested resolution. Try a different webcam.";
+    case "SecurityError":
+      return "Camera access is blocked by browser security. Make sure you loaded the site over HTTPS.";
+    default:
+      return err?.message || "Could not start the camera. Check that one is connected and try again.";
+  }
+}
+
 export function FaceScanner({
   onComplete
 }: {
@@ -55,27 +119,30 @@ export function FaceScanner({
     setError(null);
     setPhase("loading-models");
     try {
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        throw new Error(
+          "This browser doesn't expose a camera API. Try Chrome, Edge, Firefox, or Safari over HTTPS."
+        );
+      }
+
       const faceapi = (await import("face-api.js")) as FaceApiNS;
       await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
       await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
       faceApiRef.current = faceapi;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: false
-      });
+      const stream = await getCameraStream();
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
       setPhase("ready");
-    } catch (e: any) {
-      setError(
-        e?.name === "NotAllowedError"
-          ? "Camera permission denied. Allow it in your browser to scan."
-          : e?.message || "Could not start the camera or load models."
-      );
+    } catch (e: unknown) {
+      setError(humanizeCameraError(e));
       setPhase("error");
     }
   }
