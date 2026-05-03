@@ -48,9 +48,9 @@ type LiveMsg =
   | { type: "leave" };
 
 /**
- * Lightweight AR overlay for the live match — green tracking dots plus
- * a faint cyan face frame. Drawn manually mirrored (W - x) because the
- * visible video is CSS-mirrored but the canvas isn't.
+ * AR overlay for the live match — bright green tracking dots with a
+ * glow, plus a glowing cyan face frame. Drawn manually mirrored
+ * (W - x) since the visible video is CSS-mirrored but the canvas isn't.
  */
 function drawLiveOverlay(
   ctx: CanvasRenderingContext2D,
@@ -58,19 +58,28 @@ function drawLiveOverlay(
   box: { x: number; y: number; width: number; height: number },
   W: number
 ) {
-  // Face frame
-  ctx.strokeStyle = "rgba(34, 211, 238, 0.55)";
-  ctx.lineWidth = 1.5;
+  // Face frame — thick cyan with glow
+  ctx.save();
+  ctx.strokeStyle = "rgba(34, 211, 238, 0.9)";
+  ctx.shadowColor = "rgba(34, 211, 238, 0.8)";
+  ctx.shadowBlur = 12;
+  ctx.lineWidth = 3;
   const bx = W - box.x - box.width;
   ctx.strokeRect(bx, box.y, box.width, box.height);
+  ctx.restore();
 
-  // Tracking dots — bright green
-  ctx.fillStyle = "rgba(74, 222, 128, 0.95)";
+  // Tracking dots — bright green with glow, large enough to see
+  // clearly after object-cover scaling on a phone screen.
+  ctx.save();
+  ctx.fillStyle = "#4ade80"; // green-400, full opacity
+  ctx.shadowColor = "#4ade80";
+  ctx.shadowBlur = 8;
   for (const p of points) {
     ctx.beginPath();
-    ctx.arc(W - p.x, p.y, 1.4, 0, Math.PI * 2);
+    ctx.arc(W - p.x, p.y, 3.5, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 }
 
 function generateCode(): string {
@@ -286,15 +295,20 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       });
       matchmakingPeerIdRef.current = myId;
 
-      // Incoming-side handlers in case we end up the host (waiting peer).
-      // The role flag is set authoritatively by the poll response or by
-      // the immediate-match enqueue response — these handlers just make
-      // sure we accept whatever the opponent sends.
+      // Incoming-side handlers fire ONLY for the host (waiting peer) —
+      // the guest never receives an incoming call, they always dial out.
+      // So if either fires we are definitively the host. Set the flag
+      // here too so we don't race the polling response (which could
+      // arrive AFTER the hello exchange completes).
       peer.on("call", (call) => {
+        isHostRef.current = true;
+        matchedRef.current = true;
         call.answer(localStreamRef.current!);
         call.on("stream", attachRemoteStream);
       });
       peer.on("connection", (conn) => {
+        isHostRef.current = true;
+        matchedRef.current = true;
         wireDataConnection(conn);
       });
 

@@ -142,14 +142,20 @@ function drawAROverlay(
     h: box.height
   };
 
-  // Tracked landmarks: small green dots on every point.
-  ctx.fillStyle = pose.goodForScoring ? COLOR.trackedGood : COLOR.trackedBad;
+  // Tracked landmarks: bright green dots on every point, with a glow so
+  // they're clearly visible after object-cover scales the canvas to fit
+  // the display container (especially on phone screens).
+  ctx.save();
+  ctx.fillStyle = pose.goodForScoring ? "#4ade80" : "#f59e0b";
+  ctx.shadowColor = pose.goodForScoring ? "#4ade80" : "#f59e0b";
+  ctx.shadowBlur = 6;
   for (const p of points) {
     const { x, y } = mx(p);
     ctx.beginPath();
-    ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 
   // Anchor positions (face landmarks the labels point to).
   const aSymmetry = mx(points[27]);
