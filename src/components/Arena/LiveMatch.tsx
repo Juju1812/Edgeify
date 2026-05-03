@@ -58,6 +58,17 @@ function drawLiveOverlay(
   box: { x: number; y: number; width: number; height: number },
   W: number
 ) {
+  // DEBUG SENTINEL — see /lab for explanation
+  ctx.save();
+  ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
+  ctx.fillRect(8, 8, 60, 24);
+  ctx.fillStyle = "white";
+  ctx.font = "bold 12px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("AR ON", 38, 20);
+  ctx.restore();
+
   // Face frame — thick cyan with glow
   ctx.save();
   ctx.strokeStyle = "rgba(34, 211, 238, 0.9)";
@@ -1174,7 +1185,8 @@ function PlayerTile(props: {
             ref={props.overlayRef}
             width={640}
             height={480}
-            className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+            style={{ zIndex: 50 }}
+            className="pointer-events-none absolute inset-0 h-full w-full"
           />
         )}
       </div>

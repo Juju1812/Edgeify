@@ -133,6 +133,21 @@ function drawAROverlay(
   H: number,
   pose: FacePose
 ) {
+  // DEBUG SENTINEL — proves the canvas is rendering and on top.
+  // If you can see this red box but no dots/labels, the canvas is fine
+  // and the issue is something else. If you can't see this either, the
+  // canvas itself is being hidden by the video or something else is
+  // covering it.
+  ctx.save();
+  ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
+  ctx.fillRect(8, 8, 60, 24);
+  ctx.fillStyle = "white";
+  ctx.font = "bold 12px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("AR ON", 38, 20);
+  ctx.restore();
+
   // Mirror x so coords match the visible (CSS-mirrored) video.
   const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
   const mb = {
@@ -675,7 +690,8 @@ export function FaceScanner({
           ref={overlayRef}
           width={640}
           height={480}
-          className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+          style={{ zIndex: 50 }}
+          className="pointer-events-none absolute inset-0 h-full w-full"
         />
         <canvas ref={captureRef} className="hidden" />
 
