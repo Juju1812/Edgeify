@@ -4,6 +4,7 @@ export type EdgeScoreBreakdown = {
   canthalTilt: number;       // -1..1 (signed)
   cheekboneProm: number;     // 0..1
   goldenRatio: number;       // 0..1
+  faceFat: number;           // 0..1 — facial fullness; higher = more fat
   composite: number;         // 0..100 weighted
 };
 

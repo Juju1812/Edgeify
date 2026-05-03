@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   computeEdgeScore,
+  consensusLandmarks,
   estimatePose,
   eyeAspectRatio,
   getEyePoints,
@@ -45,19 +46,22 @@ function syntheticScore(): EdgeScoreBreakdown {
   const canthalTilt = (Math.random() - 0.4) * 0.8;
   const cheekboneProm = 0.3 + rand() * 0.55;
   const goldenRatio = 0.4 + rand() * 0.5;
+  const faceFat = 0.2 + rand() * 0.5;
   const composite =
     100 *
-    (0.30 * symmetry +
-      0.25 * jawlineDefinition +
-      0.15 * (1 - Math.abs(canthalTilt - 0.4)) +
-      0.15 * cheekboneProm +
-      0.15 * goldenRatio);
+    (0.26 * symmetry +
+      0.22 * jawlineDefinition +
+      0.12 * (1 - Math.abs(canthalTilt - 0.4)) +
+      0.13 * cheekboneProm +
+      0.12 * goldenRatio +
+      0.15 * (1 - faceFat));
   return {
     symmetry,
     jawlineDefinition,
     canthalTilt,
     cheekboneProm,
     goldenRatio,
+    faceFat,
     composite: Math.round(Math.max(0, Math.min(100, composite)))
   };
 }
@@ -298,6 +302,17 @@ function drawAROverlay(
       color: COLOR.cyan
     },
     {
+      // Anchor on lower cheek (point 5 — between gonial and chin)
+      anchor: mx(points[5]),
+      pos: {
+        x: Math.min(W - 50, mb.x + mb.w + padX),
+        y: mb.y + mb.h * 0.88
+      },
+      title: "FACE FAT",
+      value: pctStr(avg.faceFat),
+      color: avg.faceFat > 0.5 ? "#f59e0b" : COLOR.cyan
+    },
+    {
       anchor: { x: mb.x + mb.w / 2, y: mb.y + mb.h - 4 },
       pos: { x: mb.x + mb.w / 2, y: Math.min(H - 26, mb.y + mb.h + 38) },
       title: "EDGESCORE",
@@ -429,6 +444,7 @@ function trimmedAverage(samples: EdgeScoreBreakdown[]): EdgeScoreBreakdown {
       canthalTilt: 0,
       cheekboneProm: 0,
       goldenRatio: 0,
+      faceFat: 0,
       composite: 0
     };
   const trim = (key: keyof EdgeScoreBreakdown) =>
@@ -442,6 +458,7 @@ function trimmedAverage(samples: EdgeScoreBreakdown[]): EdgeScoreBreakdown {
     canthalTilt: trim("canthalTilt"),
     cheekboneProm: trim("cheekboneProm"),
     goldenRatio: trim("goldenRatio"),
+    faceFat: trim("faceFat"),
     composite: trim("composite")
   };
 }
@@ -481,6 +498,10 @@ export function FaceScanner({
   const rafRef = useRef<number | null>(null);
   const blinksRef = useRef(0);
   const samplesRef = useRef<EdgeScoreBreakdown[]>([]);
+  // Accumulated raw landmarks from every good-pose frame. The final
+  // saved score is computed from a trimmed-mean consensus of these
+  // — much more stable than averaging per-frame metric values.
+  const landmarkAccumRef = useRef<Pt[][]>([]);
   const totalSamplesRef = useRef(0);
   const scanStartRef = useRef(0);
 
@@ -593,6 +614,7 @@ export function FaceScanner({
     yawMinRef.current = Number.POSITIVE_INFINITY;
     yawMaxRef.current = Number.NEGATIVE_INFINITY;
     samplesRef.current = [];
+    landmarkAccumRef.current = [];
     totalSamplesRef.current = 0;
     scanStartRef.current = performance.now();
     setBlinks(0);
@@ -615,10 +637,13 @@ export function FaceScanner({
     const ctx = overlay.getContext("2d");
     if (!ctx) return;
 
+    // Higher inputSize gives noticeably more precise landmarks, at
+    // ~2x the per-frame cost. 416 is a good sweet spot for accuracy
+    // without dropping below ~15 fps on most laptops/phones.
     const detection = await faceapi
       .detectSingleFace(
         video,
-        new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 })
+        new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 })
       )
       .withFaceLandmarks();
 
@@ -637,23 +662,26 @@ export function FaceScanner({
       }));
       const pose = estimatePose(points);
 
-      // Only contribute samples when the pose is roughly frontal — a
-      // tilted/turned head warps every metric. The AR overlay still
-      // renders so the user sees the dots; we just don't trust those
-      // frames for scoring.
-      if (pose.goodForScoring) {
-        const sample = computeEdgeScore(points);
-        samplesRef.current.push(sample);
+      // Only contribute frames where (a) the pose is roughly frontal
+      // and (b) the detector is confident enough. Tilted/turned heads
+      // warp every metric, and low-confidence detections often have
+      // wildly off-by-30px landmarks. The AR overlay still renders so
+      // the user sees the dots; we just don't trust those frames for
+      // the saved score.
+      const detScore = detection.detection.score;
+      if (pose.goodForScoring && detScore >= 0.6) {
+        landmarkAccumRef.current.push(points);
         totalSamplesRef.current += 1;
-        if (samplesRef.current.length > TARGET_SAMPLES)
-          samplesRef.current.shift();
       }
 
-      // Rolling trimmed-mean for the live HUD. Falls back to the current
-      // frame's score until we have any samples (fade-in).
+      // Live HUD score: compute on a running consensus of accumulated
+      // landmarks (much more stable than per-frame raw scores), or fall
+      // back to the current-frame score until we have any consensus
+      // data. This is what the AR labels animate against during scan.
+      const accum = landmarkAccumRef.current;
       const avg =
-        samplesRef.current.length > 0
-          ? trimmedAverage(samplesRef.current)
+        accum.length >= 5
+          ? computeEdgeScore(consensusLandmarks(accum))
           : computeEdgeScore(points);
       setLiveScore(avg);
 
@@ -732,6 +760,15 @@ export function FaceScanner({
     playSfx("matchStart");
     setPhase("computing");
 
+    // The saved score uses the FULL accumulated landmark set, scored
+    // once on its trimmed-mean consensus. This is much more stable
+    // than the running display score (which only uses the most recent
+    // frames). If we somehow have no accumulated frames, fall back to
+    // whatever the live HUD converged on.
+    const accum = landmarkAccumRef.current;
+    const finalScore =
+      accum.length >= 5 ? computeEdgeScore(consensusLandmarks(accum)) : avg;
+
     // Capture the current frame to a small JPEG data URL. 200x150 @ 0.7
     // is typically 8-15KB which fits comfortably in KV-backed profile
     // sync, so the captured face survives cross-device sign-in.
@@ -747,7 +784,7 @@ export function FaceScanner({
     setTimeout(() => {
       stopCamera();
       setPhase("done");
-      onComplete({ score: avg, faceDataUrl });
+      onComplete({ score: finalScore, faceDataUrl });
     }, 900);
   }
 

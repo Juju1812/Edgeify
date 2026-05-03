@@ -49,6 +49,7 @@ function syntheticBreakdownFromElo(elo: number, edgeScore: number): EdgeScoreBre
     canthalTilt: (r(3) - 0.5) * 1.4,
     cheekboneProm: clamp01(center + (r(4) - 0.5) * 0.2),
     goldenRatio: clamp01(center + (r(5) - 0.5) * 0.2),
+    faceFat: clamp01(0.5 - (center - 0.5) * 0.6 + (r(6) - 0.5) * 0.2),
     composite: edgeScore
   };
 }

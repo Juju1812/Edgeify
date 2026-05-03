@@ -26,7 +26,8 @@ export function ScoreReveal({
       max: 12
     },
     { label: "Cheekbones", value: score.cheekboneProm * 100, suffix: "%" },
-    { label: "Golden ratio", value: score.goldenRatio * 100, suffix: "%" }
+    { label: "Golden ratio", value: score.goldenRatio * 100, suffix: "%" },
+    { label: "Face fat", value: score.faceFat * 100, suffix: "%" }
   ];
 
   return (

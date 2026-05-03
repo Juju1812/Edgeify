@@ -123,6 +123,34 @@ export function trimmedMean(values: number[], frac = 0.15): number {
 }
 
 /**
+ * Build a "consensus" 68-landmark face by trimmed-mean-averaging each
+ * landmark coordinate across many observed frames. Vastly more stable
+ * than per-frame metric computation: face-detector landmarks jitter
+ * 1-2 px frame to frame, and metric formulas are nonlinear, so per-frame
+ * scores have a lot of noise. Averaging landmarks first then scoring
+ * the consensus removes that noise almost entirely.
+ *
+ * Frames must all be 68-point arrays. Drops top/bottom `frac` per axis.
+ */
+export function consensusLandmarks(frames: Pt[][], frac = 0.15): Pt[] {
+  if (frames.length === 0) return [];
+  const N = 68;
+  const out: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const f of frames) {
+      if (f && f.length === N) {
+        xs.push(f[i].x);
+        ys.push(f[i].y);
+      }
+    }
+    out.push({ x: trimmedMean(xs, frac), y: trimmedMean(ys, frac) });
+  }
+  return out;
+}
+
+/**
  * Reflect a point across a vertical axis at xAxis.
  */
 function reflectX(p: Pt, xAxis: number): Pt {
@@ -149,6 +177,7 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
       canthalTilt: 0,
       cheekboneProm: 0.5,
       goldenRatio: 0.5,
+      faceFat: 0.5,
       composite: 50
     };
   }
@@ -228,6 +257,32 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
   const cheekRatio = cheekW / (midJawW || 1); // typically 1.0..1.15
   const cheekboneProm = clamp01((cheekRatio - 1.0) / 0.18);
 
+  // ─── Face fat (facial fullness) ───────────────────────────────────────
+  // Compares the three jaw widths (cheekbone, gonial angle, lower jaw)
+  // along with the face height. A lean face has heavy taper — cheekbones
+  // wide, gonial much narrower, lower jaw narrowest, face elongated.
+  // A fuller face has nearly parallel sides and a shorter height.
+  //
+  // Two signals combined:
+  //   1. Taper: 1 - (gonial_w / cheek_w). Higher taper → leaner.
+  //      Empirical typical range: lean 0.30, fat 0.05.
+  //   2. Aspect: face_height / cheek_w. Higher = more elongated → leaner.
+  //      Empirical: lean 1.6, fat 1.2.
+  //
+  // We blend them into a single fullness score where 1.0 = full face and
+  // 0.0 = lean face. Inter-ocular normalization is implicit since both
+  // numerator and denominator are face-internal distances.
+  const gonialW = dist(points[4], points[12]);
+  const taper = 1 - gonialW / (cheekW || 1);
+  const taperLeanness = clamp01((taper - 0.05) / 0.30);
+  // Face height = brow midpoint to chin
+  const browMid = midpoint(points[19], points[24]);
+  const faceHeight = dist(browMid, points[8]);
+  const aspect = faceHeight / (cheekW || 1);
+  const aspectLeanness = clamp01((aspect - 1.20) / 0.45);
+  const leanness = 0.6 * taperLeanness + 0.4 * aspectLeanness;
+  const faceFat = clamp01(1 - leanness);
+
   // ─── Golden-ratio fit ─────────────────────────────────────────────────
   // Three classical thirds: hairline→brow, brow→nose-base, nose-base→chin.
   // Approximate hairline by extending up from brow-top to chin distance.
@@ -246,14 +301,16 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
 
   // ─── Composite ────────────────────────────────────────────────────────
   // Weighted sum, then scale to 0..100. Tilt contributes by absolute value
-  // (deviation from neutral is interesting either direction).
+  // (deviation from neutral is interesting either direction). Face fat
+  // contributes negatively (leaner faces score higher in this game).
   const composite =
     100 *
-    (0.30 * symmetry +
-      0.25 * jawlineDefinition +
-      0.15 * (1 - Math.abs(canthalTilt - 0.4)) + // ~5° positive tilt is "ideal"
-      0.15 * cheekboneProm +
-      0.15 * goldenRatio);
+    (0.26 * symmetry +
+      0.22 * jawlineDefinition +
+      0.12 * (1 - Math.abs(canthalTilt - 0.4)) + // ~5° positive tilt is "ideal"
+      0.13 * cheekboneProm +
+      0.12 * goldenRatio +
+      0.15 * (1 - faceFat));
 
   return {
     symmetry,
@@ -261,6 +318,7 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
     canthalTilt,
     cheekboneProm,
     goldenRatio,
+    faceFat,
     composite: Math.round(clamp01(composite / 100) * 100)
   };
 }

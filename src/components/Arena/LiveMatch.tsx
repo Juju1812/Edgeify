@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { computeEdgeScore, trimmedMean, type Pt } from "@/lib/edge-score";
+import {
+  computeEdgeScore,
+  consensusLandmarks,
+  trimmedMean,
+  type Pt
+} from "@/lib/edge-score";
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
 import { playSfx, vibrate } from "@/lib/audio";
@@ -724,20 +729,27 @@ export function LiveMatch({
     }
   }, [round, phase]);
 
+  const landmarkAccumRef = useRef<Pt[][]>([]);
+
   function runScanLoop(idx: number) {
     sampleBufferRef.current = [];
+    landmarkAccumRef.current = [];
     const start = performance.now();
     const criterion = ROUND_CRITERIA[idx].key;
     let lastTickSent = 0;
 
     const finishRound = () => {
-      const samples = sampleBufferRef.current;
-      const finalVal =
-        samples.length >= 5
-          ? Math.round(trimmedMean(samples, 0.15))
-          : samples.length > 0
-            ? Math.round(samples.reduce((s, v) => s + v, 0) / samples.length)
-            : 50; // pure fallback if no detection ever landed
+      // Score the consensus face built from all good frames during this
+      // round — much more stable than averaging per-frame scores.
+      const accum = landmarkAccumRef.current;
+      let finalVal = 50;
+      if (accum.length >= 5) {
+        const cons = consensusLandmarks(accum);
+        const score = computeEdgeScore(cons);
+        finalVal = Math.round(scoreFor(score, criterion));
+      } else if (sampleBufferRef.current.length > 0) {
+        finalVal = Math.round(trimmedMean(sampleBufferRef.current, 0.15));
+      }
       setLiveMine(finalVal);
       setMyScoreReady({ idx, value: finalVal });
       sendMsg({ type: "score", idx, value: finalVal });
@@ -764,10 +776,13 @@ export function LiveMatch({
       }
 
       try {
+        // Live match keeps inputSize 320 (vs lab's 416) for ~2x perf since
+        // we're running on top of a WebRTC video pipeline. scoreThreshold
+        // bumped from 0.4 → 0.55 so we ignore low-confidence misdetects.
         const det = await faceapi
           .detectSingleFace(
             video,
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 })
+            new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.55 })
           )
           .withFaceLandmarks();
 
@@ -779,19 +794,29 @@ export function LiveMatch({
           ctx.clearRect(0, 0, overlay.width, overlay.height);
         }
 
-        if (det) {
+        if (det && det.detection.score >= 0.55) {
           const points: Pt[] = det.landmarks.positions.map((p) => ({
             x: p.x,
             y: p.y
           }));
-          const score = computeEdgeScore(points);
-          const v = scoreFor(score, criterion);
+
+          // Accumulate raw landmarks for the end-of-round consensus
+          // score. Per-frame score still computed for the running HUD.
+          landmarkAccumRef.current.push(points);
+
+          // Live score: build a running consensus from accumulated
+          // landmarks once we have enough; before that, use the latest
+          // frame's score as a fade-in.
+          const accum = landmarkAccumRef.current;
+          const liveScoreObj =
+            accum.length >= 5
+              ? computeEdgeScore(consensusLandmarks(accum))
+              : computeEdgeScore(points);
+          const v = scoreFor(liveScoreObj, criterion);
           sampleBufferRef.current.push(v);
 
           if (sampleBufferRef.current.length >= 5) {
-            const liveVal = Math.round(
-              trimmedMean(sampleBufferRef.current.slice(-15), 0.2)
-            );
+            const liveVal = Math.round(v);
             setLiveMine(liveVal);
 
             // Broadcast our running score to the opponent ~5x per second
@@ -1286,7 +1311,9 @@ function Arena({
         )}
       </div>
 
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4">
+      {/* Mobile: stack vertically (each tile full-width landscape).
+           Desktop: side-by-side with score badge between. */}
+      <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr] md:gap-4">
         <PlayerTile
           videoRef={mineRef}
           overlayRef={overlayRef}
@@ -1301,8 +1328,8 @@ function Arena({
           reactions={reactions.filter((r) => r.from === "me")}
         />
 
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black text-[10px] font-semibold tracking-[0.16em] text-white/70 sm:h-16 sm:w-16">
+        <div className="flex items-center justify-center gap-2 md:flex-col">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black text-[10px] font-semibold tracking-[0.16em] text-white/70 md:h-16 md:w-16">
             {wins.me}–{wins.opp}
           </div>
           <span className="text-[9px] uppercase tracking-[0.22em] text-white/40">
@@ -1322,6 +1349,16 @@ function Arena({
           reactions={reactions.filter((r) => r.from === "opp")}
         />
       </div>
+
+      {/* Winner bar — tug-of-war between current scores */}
+      {(phase === "scanning" || phase === "between") && (
+        <WinnerBar
+          myName={user.username || "YOU"}
+          oppName={opponent?.username || "?"}
+          myScore={liveMine}
+          oppScore={liveOpp}
+        />
+      )}
 
       {/* Emoji reaction bar */}
       <div className="mt-3 flex items-center justify-center gap-2">
@@ -1353,6 +1390,65 @@ function Arena({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function WinnerBar({
+  myName,
+  oppName,
+  myScore,
+  oppScore
+}: {
+  myName: string;
+  oppName: string;
+  myScore: number;
+  oppScore: number;
+}) {
+  const total = myScore + oppScore;
+  // Default split is 50/50 until either side has actual numbers.
+  const myPct = total > 0 ? (myScore / total) * 100 : 50;
+  const leading: "me" | "opp" | "tie" =
+    myScore > oppScore ? "me" : oppScore > myScore ? "opp" : "tie";
+  return (
+    <div className="mt-4">
+      <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-[0.22em] text-white/50">
+        <span>{myName}</span>
+        <span
+          className="font-mono"
+          style={{
+            color:
+              leading === "me"
+                ? "#34d399"
+                : leading === "opp"
+                  ? "#f43f5e"
+                  : "#fff"
+          }}
+        >
+          {leading === "me"
+            ? "← LEADING"
+            : leading === "opp"
+              ? "TRAILING →"
+              : "TIED"}
+        </span>
+        <span className="text-right">{oppName}</span>
+      </div>
+      <div className="glass relative flex h-8 overflow-hidden rounded-full">
+        <motion.div
+          animate={{ width: `${myPct}%` }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          className="flex items-center justify-start bg-emerald-500/35 pl-3 text-xs font-bold text-emerald-100"
+        >
+          {myScore > 0 ? myScore : ""}
+        </motion.div>
+        <motion.div
+          animate={{ width: `${100 - myPct}%` }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          className="flex items-center justify-end bg-rose-500/35 pr-3 text-xs font-bold text-rose-100"
+        >
+          {oppScore > 0 ? oppScore : ""}
+        </motion.div>
+      </div>
     </div>
   );
 }
