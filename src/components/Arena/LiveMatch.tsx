@@ -529,6 +529,14 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
     runScanLoop(idx);
   }
 
+  // When the very first round starts (idx 0), reset the resolved-round
+  // tracker so a previous match's state can't block us.
+  useEffect(() => {
+    if (round === 0 && phase === "vs") {
+      lastResolvedRoundRef.current = -1;
+    }
+  }, [round, phase]);
+
   function runScanLoop(idx: number) {
     sampleBufferRef.current = [];
     const start = performance.now();
@@ -615,14 +623,36 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
   }
 
   // Once we have BOTH scores for the current round, transition to "between"
+  // and queue the next round (or final result).
+  //
+  // We can't use a useEffect cleanup that clears the setTimeout — the
+  // setPhase("between") inside the effect re-triggers the effect, the
+  // cleanup fires, and the timeout dies before it can advance. Instead
+  // we guard against duplicate processing with a ref keyed by round
+  // number, and only clear the pending timeout on full unmount.
+  const lastResolvedRoundRef = useRef(-1);
+  const transitionTimeoutRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (phase !== "scanning") return;
+    return () => {
+      if (transitionTimeoutRef.current) {
+        window.clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!myScoreReady || !oppScoreReceived) return;
     if (myScoreReady.idx !== round || oppScoreReceived.idx !== round) return;
+    if (lastResolvedRoundRef.current >= round) return; // already handled this round
+    lastResolvedRoundRef.current = round;
 
-    const next = [...scoreboard, { me: myScoreReady.value, opp: oppScoreReceived.value }];
+    const next = [
+      ...scoreboard,
+      { me: myScoreReady.value, opp: oppScoreReceived.value }
+    ];
     setScoreboard(next);
-
     setPhase("between");
 
     const wins = next.reduce(
@@ -633,12 +663,11 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       { me: 0, opp: 0 }
     );
 
-    const t = window.setTimeout(() => {
-      // End if Bo3 decided
+    transitionTimeoutRef.current = window.setTimeout(() => {
+      transitionTimeoutRef.current = null;
       if (wins.me >= 2 || wins.opp >= 2 || next.length === 3) {
         if (isHostRef.current) {
           const won = wins.me >= wins.opp;
-          // From host POV: hostWins = wins.me, guestWins = wins.opp.
           sendMsg({
             type: "result",
             winner: won ? "host" : "guest",
@@ -647,18 +676,14 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           });
           finalizeMatch(won, wins.me, wins.opp);
         }
-        // Guest waits for "result" message
       } else {
-        // Next round
         if (isHostRef.current) {
           beginRound(round + 1);
         }
       }
     }, ROUND_RESULT_MS);
-
-    return () => window.clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, myScoreReady, oppScoreReceived, round]);
+  }, [myScoreReady, oppScoreReceived, round]);
 
   function finalizeMatch(won: boolean, myWins: number, oppWins: number) {
     if (!opponent) return;
@@ -731,9 +756,28 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="space-y-6">
-      {/* Hidden local video — used only to feed face-api during scanning.
-          Visible local preview is rendered separately below. */}
-      <video ref={localVideoRef} playsInline muted className="hidden" />
+      {/* Off-screen local video — face-api reads frames from this element.
+          We CAN'T use display:none because browsers throttle/skip frames
+          on hidden videos. Position it absolutely off-screen so the
+          browser still pumps frames into the element while the user
+          can't see it. */}
+      <video
+        ref={localVideoRef}
+        playsInline
+        muted
+        autoPlay
+        width={320}
+        height={240}
+        style={{
+          position: "fixed",
+          left: "-9999px",
+          top: "-9999px",
+          width: 320,
+          height: 240,
+          opacity: 0,
+          pointerEvents: "none"
+        }}
+      />
 
       {phase === "lobby" && (
         <Lobby
@@ -1130,7 +1174,7 @@ function PlayerTile(props: {
     <div
       className={`glass relative overflow-hidden rounded-2xl border-2 transition ${ringColor}`}
     >
-      <div className="relative aspect-[3/4] w-full bg-black">
+      <div className="relative aspect-[4/3] w-full bg-black">
         <video
           ref={props.videoRef}
           playsInline

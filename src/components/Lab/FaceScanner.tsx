@@ -662,7 +662,7 @@ export function FaceScanner({
   // ─── UI ──────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
-      <div className="glass relative aspect-video w-full overflow-hidden rounded-2xl">
+      <div className="glass relative aspect-[4/3] w-full overflow-hidden rounded-2xl">
         <video
           ref={videoRef}
           width={640}
