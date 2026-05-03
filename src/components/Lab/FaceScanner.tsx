@@ -551,6 +551,18 @@ export function FaceScanner({
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
 
+    // DIAGNOSTIC: unconditionally draw a magenta block in the top-left.
+    // If you see this, drawing on the canvas works → bug is inside
+    // drawAROverlay. If you don't, the buffer is somehow lost between
+    // clearRect and the next paint.
+    ctx.fillStyle = "rgba(217, 70, 239, 0.85)";
+    ctx.fillRect(20, 20, 200, 100);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 24px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("DRAW OK", 120, 70);
+
     const detection = await faceapi
       .detectSingleFace(
         video,
