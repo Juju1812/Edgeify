@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
+import { LiveMatch } from "@/components/Arena/LiveMatch";
 import { eloDelta } from "@/lib/elo";
 import { rankFromElo } from "@/lib/rank";
 import { findOpponent, type SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
+
+type Mode = "select" | "quick" | "live";
 
 type Phase =
   | "lobby"
@@ -56,6 +59,7 @@ function clamp01(x: number) {
 
 export default function ArenaPage() {
   const { user, status, ready, update } = useUser();
+  const [mode, setMode] = useState<Mode>("select");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [searchBand, setSearchBand] = useState(100);
   const [opponent, setOpponent] = useState<SeedUser | null>(null);
@@ -223,12 +227,34 @@ export default function ArenaPage() {
         ← Back to Lobby
       </Link>
 
-      <div className="mt-6">
-        <p className="label-xs">1V1 Arena</p>
-        <h1 className="heading-card mt-2 text-3xl">Ranked Matchmaking</h1>
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="label-xs">1V1 Arena</p>
+          <h1 className="heading-card mt-2 text-3xl">Ranked Matchmaking</h1>
+        </div>
+        {mode !== "select" && (
+          <button
+            onClick={() => {
+              setMode("select");
+              setPhase("lobby");
+            }}
+            className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+          >
+            ← Change mode
+          </button>
+        )}
       </div>
 
       <div className="mt-8">
+        {mode === "select" && (
+          <ModeSelect onPick={(m) => setMode(m)} />
+        )}
+
+        {mode === "live" && (
+          <LiveMatch onClose={() => setMode("select")} />
+        )}
+
+        {mode === "quick" && (
         <AnimatePresence mode="wait">
           {phase === "lobby" && (
             <Lobby key="lobby" onStart={startSearch} />
@@ -261,6 +287,7 @@ export default function ArenaPage() {
             />
           )}
         </AnimatePresence>
+        )}
       </div>
 
       <Footer />
@@ -269,6 +296,54 @@ export default function ArenaPage() {
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────
+
+function ModeSelect({ onPick }: { onPick: (m: Mode) => void }) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <motion.button
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        onClick={() => onPick("live")}
+        className="glass glass-hover rounded-2xl p-8 text-left"
+      >
+        <div className="mb-3 flex items-center gap-2">
+          <span className="relative inline-flex h-2 w-2">
+            <span className="absolute inset-0 animate-pulse-dot rounded-full bg-emerald-400/60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+          </span>
+          <p className="label-xs text-emerald-300">Live · WebRTC</p>
+        </div>
+        <h3 className="heading-card text-xl">Live Match</h3>
+        <p className="mt-2 text-sm text-white/60">
+          Real face-off against another EdgeIfy player. You see each other&apos;s
+          camera, the AI scans both faces in real time, and the winner is
+          declared at the end.
+        </p>
+        <p className="mt-4 text-[10px] uppercase tracking-[0.32em] text-white/40">
+          Generate code or join one →
+        </p>
+      </motion.button>
+
+      <motion.button
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        onClick={() => onPick("quick")}
+        className="glass glass-hover rounded-2xl p-8 text-left"
+      >
+        <p className="label-xs">Solo · AI Bot</p>
+        <h3 className="heading-card mt-2 text-xl">Quick Match</h3>
+        <p className="mt-2 text-sm text-white/60">
+          Get matched against an ELO-ranked AI opponent immediately. No friend
+          required — best for testing your placement and grinding ELO solo.
+        </p>
+        <p className="mt-4 text-[10px] uppercase tracking-[0.32em] text-white/40">
+          Find Match →
+        </p>
+      </motion.button>
+    </div>
+  );
+}
 
 function Lobby({ onStart }: { onStart: () => void }) {
   const { user } = useUser();

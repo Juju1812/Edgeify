@@ -64,7 +64,7 @@ export default function LeaderboardPage() {
           <p className="label-xs">Season 1</p>
           <h1 className="heading-card mt-2 text-3xl">Global Rank</h1>
           <p className="mt-1 text-sm text-white/50">
-            Top {filtered.length} Edgers
+            Top {filtered.length} Adams
           </p>
         </div>
         {myRank !== null && (

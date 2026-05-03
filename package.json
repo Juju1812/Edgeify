@@ -19,6 +19,7 @@
     "framer-motion": "^11.11.17",
     "next": "14.2.18",
     "next-auth": "^4.24.10",
+    "peerjs": "^1.5.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

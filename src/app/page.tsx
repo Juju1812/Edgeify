@@ -160,7 +160,7 @@ export default function HomePage() {
           href="/leaderboard"
           icon={<TrophyIcon className="h-20 w-20" />}
           title="Global Rank"
-          subtitle="Top 100 Edgers"
+          subtitle="Top 100 Adams"
         />
 
         <ModeCard
