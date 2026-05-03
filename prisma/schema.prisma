@@ -1,4 +1,4 @@
-// MogOff database schema.
+// EdgeIfy database schema.
 // Designed for PostgreSQL. Switch the provider to "sqlite" + change DATABASE_URL
 // to "file:./dev.db" for zero-setup local development.
 
@@ -87,14 +87,14 @@ model FaceProfile {
   photoPublicId String?
 
   // Geometric measurements computed client-side from face-api.js landmarks.
-  // These are the "MogScore" components — entertainment metrics, not beauty
+  // These are the "EdgeScore" components — entertainment metrics, not beauty
   // judgments. All 0..1 unless noted.
   symmetry          Float?
   jawlineDefinition Float?
   canthalTilt       Float?  // signed: positive = positive tilt
   cheekboneProm     Float?
   goldenRatio       Float?  // closeness to phi-based proportions
-  mogScore          Float?  // weighted composite, 0..100
+  edgeScore         Float?  // weighted composite, 0..100
 
   // Embedding (face-api.js descriptor, 128 floats). Stored for matchmaking
   // dedupe + same-person detection across accounts.

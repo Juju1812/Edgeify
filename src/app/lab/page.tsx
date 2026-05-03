@@ -4,7 +4,7 @@ export default function LabPage() {
   return (
     <ComingSoon
       title="The Lab"
-      description="Solo calibration. Webcam capture with face-api.js, multi-angle scan, geometric MogScore breakdown, 5 placement matches before ranked."
+      description="Solo calibration. Webcam capture with face-api.js, multi-angle scan, geometric EdgeScore breakdown, 5 placement matches before ranked."
     />
   );
 }

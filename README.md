@@ -1,6 +1,6 @@
-# MogOff
+# EdgeIfy
 
-Ranked 1v1 face-off platform. Webcam-only capture, geometric "MogScore" entertainment metric (symmetry / proportions / jawline / canthal tilt), ELO-based matchmaking, global leaderboard. Inspired by gaming-tournament UI; framed as entertainment, **not** an objective beauty judgment.
+Ranked 1v1 face-off platform. Webcam-only capture, geometric "EdgeScore" entertainment metric (symmetry / proportions / jawline / canthal tilt), ELO-based matchmaking, global leaderboard. Inspired by gaming-tournament UI; framed as entertainment, **not** an objective beauty judgment.
 
 ## Status
 
@@ -106,7 +106,7 @@ Report ── User (target)        (HARASSMENT/NSFW/IMPERSONATION/UNDERAGE/OTHER
 
 In rough priority order:
 
-1. **`/lab`** — webcam capture, face-api.js model loading, multi-angle prompts, geometric scoring, MogScore reveal animation, 5 placement matches.
+1. **`/lab`** — webcam capture, face-api.js model loading, multi-angle prompts, geometric scoring, EdgeScore reveal animation, 5 placement matches.
 2. **NextAuth + Prisma adapter** — Google + guest sessions, age gate at signup.
 3. **`/leaderboard`** — paginated DB-backed top 100, country filter, search.
 4. **`/arena`** — Pusher channels, ELO ±100 widening matchmaker, versus screen, Bo3.
@@ -124,4 +124,4 @@ Designed for Vercel:
 
 ## A note on framing
 
-MogOff is a **game**. The MogScore is a deterministic composite of geometric measurements (golden-ratio proportions, bilateral symmetry, jawline angle, canthal tilt). It does not — and cannot — measure attractiveness. Every page carries that disclaimer. There's also a `Touch grass →` link in the footer.
+EdgeIfy is a **game**. The EdgeScore is a deterministic composite of geometric measurements (golden-ratio proportions, bilateral symmetry, jawline angle, canthal tilt). It does not — and cannot — measure attractiveness. Every page carries that disclaimer. There's also a `Touch grass →` link in the footer.

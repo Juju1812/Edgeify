@@ -5,7 +5,7 @@ export function Footer() {
     <footer className="mt-20 border-t border-white/[0.04] bg-black/30 py-8 backdrop-blur">
       <div className="mx-auto max-w-[1400px] space-y-3 px-6 text-center text-[11px] uppercase tracking-[0.24em] text-white/40">
         <p>
-          MogScore is an entertainment metric based on geometric facial
+          EdgeScore is an entertainment metric based on geometric facial
           measurements. It is <span className="text-white/60">not</span> an
           objective beauty judgment.
         </p>

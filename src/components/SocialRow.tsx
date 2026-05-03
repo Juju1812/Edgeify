@@ -32,35 +32,35 @@ const items: SocialItem[] = [
     href: "https://tiktok.com/",
     icon: <TikTokIcon className="h-6 w-6" />,
     label: "TikTok",
-    cta: "Follow MogOff",
+    cta: "Follow EdgeIfy",
     iconColor: "text-white"
   },
   {
     href: "https://instagram.com/",
     icon: <InstagramIcon className="h-6 w-6" />,
     label: "Instagram",
-    cta: "Follow MogOff",
+    cta: "Follow EdgeIfy",
     iconColor: "text-pink-400"
   },
   {
     href: "https://reddit.com/",
     icon: <RedditIcon className="h-6 w-6" />,
     label: "Reddit",
-    cta: "Follow MogOff",
+    cta: "Follow EdgeIfy",
     iconColor: "text-orange-500"
   },
   {
     href: "https://youtube.com/",
     icon: <YouTubeIcon className="h-6 w-6" />,
     label: "YouTube",
-    cta: "Follow MogOff",
+    cta: "Follow EdgeIfy",
     iconColor: "text-red-500"
   },
   {
     href: "https://x.com/",
     icon: <XIcon className="h-5 w-5" />,
     label: "X / Twitter",
-    cta: "Follow MogOff",
+    cta: "Follow EdgeIfy",
     iconColor: "text-white"
   }
 ];
