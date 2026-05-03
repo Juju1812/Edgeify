@@ -31,6 +31,7 @@ const ROUND_RESULT_MS = 2400; // pause between rounds to show winner
 type LivePhase =
   | "init" // loading models / camera
   | "lobby" // pick host or guest
+  | "matchmaking" // random matchmaking: in the queue
   | "creating" // host: waiting for opponent
   | "joining" // guest: connecting
   | "vs" // both connected, VS reveal
@@ -194,6 +195,155 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
       setError(msg || "Couldn't start hosting.");
       setPhase("error");
     }
+  }
+
+  // ─── Random matchmaking ───────────────────────────────────────────
+  // Open my own PeerJS instance, get a peer ID, post to /api/match/enqueue.
+  // - If the server matches us immediately (someone was waiting), we're
+  //   the GUEST — connect to them via PeerJS.
+  // - If the server queues us, we POLL /api/match/poll until a `pair`
+  //   notification arrives with the opponent's peer ID. Then we're the
+  //   HOST — sit and wait for them to connect to us.
+  const matchmakingPeerIdRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
+  const matchedRef = useRef(false);
+  const [searchSeconds, setSearchSeconds] = useState(0);
+
+  async function startRandomMatch() {
+    try {
+      setPhase("matchmaking");
+      setSearchSeconds(0);
+      matchedRef.current = false;
+
+      const PeerJS = (await import("peerjs")).default;
+      const peer = new PeerJS({ debug: 0 });
+      peerRef.current = peer;
+
+      peer.on("error", (err) => {
+        if (matchedRef.current) return;
+        const t = err.type;
+        if (t === "peer-unavailable") {
+          setError("Couldn't reach matched opponent. Try again.");
+        } else {
+          setError(`Network error: ${t || "unknown"}`);
+        }
+        setPhase("error");
+      });
+
+      const myId: string = await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("Couldn't connect to PeerJS broker.")), 8000);
+        peer.on("open", (id) => {
+          clearTimeout(t);
+          resolve(id);
+        });
+      });
+      matchmakingPeerIdRef.current = myId;
+
+      // Incoming-side handlers in case we end up the host (waiting peer).
+      // The role flag is set authoritatively by the poll response or by
+      // the immediate-match enqueue response — these handlers just make
+      // sure we accept whatever the opponent sends.
+      peer.on("call", (call) => {
+        call.answer(localStreamRef.current!);
+        call.on("stream", attachRemoteStream);
+      });
+      peer.on("connection", (conn) => {
+        wireDataConnection(conn);
+      });
+
+      // Enqueue
+      const enqRes = await fetch("/api/match/enqueue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          peerId: myId,
+          elo: user.elo,
+          placementsLeft: user.placementsLeft
+        })
+      });
+      const enqJson = await enqRes.json();
+
+      if (!enqRes.ok) {
+        if (enqRes.status === 503) {
+          setError(
+            "Random matchmaking isn't enabled on this server.\n\nThe project owner needs to provision Vercel KV (Storage tab → Create Database → KV) — it's free and one click. Once that's done, this button will work for everyone.\n\nFor now, use the code-based pairing below."
+          );
+        } else {
+          setError(enqJson?.message || "Couldn't join the queue.");
+        }
+        setPhase("error");
+        return;
+      }
+
+      if (enqJson.matched) {
+        // Got matched immediately — we're the GUEST, opponent is the host
+        matchedRef.current = true;
+        isHostRef.current = false;
+        const opp = enqJson.opponentPeerId as string;
+
+        const conn = peer.connect(opp, { reliable: true });
+        wireDataConnection(conn);
+
+        const call = peer.call(opp, localStreamRef.current!);
+        call.on("stream", attachRemoteStream);
+        return;
+      }
+
+      // No immediate match — start polling
+      const startTs = Date.now();
+      const tick = setInterval(async () => {
+        setSearchSeconds(Math.floor((Date.now() - startTs) / 1000));
+
+        if (matchedRef.current) {
+          window.clearInterval(tick);
+          pollTimerRef.current = null;
+          return;
+        }
+
+        try {
+          const pollRes = await fetch("/api/match/poll", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ peerId: myId })
+          });
+          const pollJson = await pollRes.json();
+          if (pollJson?.matched) {
+            // Server matched us with someone, opponent will dial us
+            // (we already wired peer.on("call") and peer.on("connection")
+            // above to accept the incoming connection).
+            matchedRef.current = true;
+            isHostRef.current = !!pollJson.iAmHost;
+            window.clearInterval(tick);
+            pollTimerRef.current = null;
+            // Don't change phase here — we'll transition when the
+            // data conn opens and `hello` is exchanged.
+          }
+        } catch {
+          /* network blip — keep polling */
+        }
+      }, 1500);
+      pollTimerRef.current = tick as unknown as number;
+    } catch (e: unknown) {
+      const msg = (e as { message?: string }).message;
+      setError(msg || "Couldn't start matchmaking.");
+      setPhase("error");
+    }
+  }
+
+  function cancelMatchmaking() {
+    if (pollTimerRef.current) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    const myId = matchmakingPeerIdRef.current;
+    if (myId) {
+      fetch("/api/match/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ peerId: myId })
+      }).catch(() => {});
+    }
+    onClose();
   }
 
   // ─── Joining ──────────────────────────────────────────────────────
@@ -488,7 +638,19 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
           Visible local preview is rendered separately below. */}
       <video ref={localVideoRef} playsInline muted className="hidden" />
 
-      {phase === "lobby" && <Lobby onHost={startHosting} onJoin={(c) => startJoining(c)} value={enteredCode} setValue={setEnteredCode} />}
+      {phase === "lobby" && (
+        <Lobby
+          onRandom={startRandomMatch}
+          onHost={startHosting}
+          onJoin={(c) => startJoining(c)}
+          value={enteredCode}
+          setValue={setEnteredCode}
+        />
+      )}
+
+      {phase === "matchmaking" && (
+        <Matchmaking seconds={searchSeconds} onCancel={cancelMatchmaking} />
+      )}
 
       {phase === "creating" && code && (
         <Hosting code={code} copied={copied} onCopy={copyCode} onCancel={onClose} />
@@ -527,58 +689,138 @@ export function LiveMatch({ onClose }: { onClose: () => void }) {
 // ─── Sub-components ───────────────────────────────────────────────────
 
 function Lobby({
+  onRandom,
   onHost,
   onJoin,
   value,
   setValue
 }: {
+  onRandom: () => void;
   onHost: () => void;
   onJoin: (code: string) => void;
   value: string;
   setValue: (v: string) => void;
 }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="space-y-4">
+      {/* Featured: Random Match — full-width hero card */}
       <button
-        onClick={onHost}
-        className="glass glass-hover rounded-2xl p-8 text-left"
+        onClick={onRandom}
+        className="glass glass-hover relative w-full overflow-hidden rounded-2xl p-8 text-left"
       >
-        <p className="label-xs">Host a match</p>
-        <h3 className="heading-card mt-2 text-xl">Generate code</h3>
-        <p className="mt-2 text-xs text-white/50">
-          Get a 6-character invite code. Share it with the person you want to face off
-          against. Connection is peer-to-peer, video stays between the two of you.
-        </p>
+        <div className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            background:
+              "radial-gradient(60% 100% at 80% 50%, rgba(217, 70, 239, 0.18), transparent 70%), radial-gradient(40% 100% at 20% 50%, rgba(168, 85, 247, 0.18), transparent 70%)"
+          }}
+        />
+        <div className="relative">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="relative inline-flex h-2 w-2">
+              <span className="absolute inset-0 animate-pulse-dot rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            </span>
+            <p className="label-xs text-emerald-300">Random pairing · Live</p>
+          </div>
+          <h3 className="heading-card text-2xl">Random Match</h3>
+          <p className="mt-2 max-w-2xl text-sm text-white/60">
+            Get instantly paired with another EdgeIfy player who&apos;s online
+            right now. Real opponent. Real video. The AI scans both faces and
+            declares the winner.
+          </p>
+          <p className="mt-4 text-[10px] uppercase tracking-[0.32em] text-mog-pink">
+            Find a stranger →
+          </p>
+        </div>
       </button>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (value.length === 6) onJoin(value);
-        }}
-        className="glass rounded-2xl p-8"
-      >
-        <p className="label-xs">Join a match</p>
-        <h3 className="heading-card mt-2 text-xl">Enter code</h3>
-        <input
-          value={value}
-          onChange={(e) =>
-            setValue(
-              e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)
-            )
-          }
-          placeholder="6-CHAR CODE"
-          maxLength={6}
-          className="mt-3 w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-center font-mono text-xl tracking-[0.32em] text-white outline-none focus:border-mog-violet"
-        />
+      {/* Code-based pairing — the existing two cards */}
+      <div className="grid gap-4 md:grid-cols-2">
         <button
-          type="submit"
-          disabled={value.length !== 6}
-          className="mt-3 w-full rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-4 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30 disabled:opacity-40"
+          onClick={onHost}
+          className="glass glass-hover rounded-2xl p-6 text-left"
         >
-          Connect →
+          <p className="label-xs">Play a friend</p>
+          <h4 className="mt-1 text-base font-semibold uppercase tracking-[0.18em] text-white">
+            Generate code
+          </h4>
+          <p className="mt-2 text-xs text-white/50">
+            6-character invite code, share over text. Peer-to-peer.
+          </p>
         </button>
-      </form>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (value.length === 6) onJoin(value);
+          }}
+          className="glass rounded-2xl p-6"
+        >
+          <p className="label-xs">Have a code?</p>
+          <input
+            value={value}
+            onChange={(e) =>
+              setValue(
+                e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)
+              )
+            }
+            placeholder="ENTER CODE"
+            maxLength={6}
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-center font-mono text-lg tracking-[0.32em] text-white outline-none focus:border-mog-violet"
+          />
+          <button
+            type="submit"
+            disabled={value.length !== 6}
+            className="mt-2 w-full rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-3 py-2.5 text-[11px] uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30 disabled:opacity-40"
+          >
+            Connect →
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Matchmaking({
+  seconds,
+  onCancel
+}: {
+  seconds: number;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="glass rounded-2xl px-8 py-14 text-center">
+      <div className="mx-auto flex w-fit gap-1.5">
+        <span className="h-2 w-2 animate-pulse-dot rounded-full bg-mog-violet" />
+        <span
+          className="h-2 w-2 animate-pulse-dot rounded-full bg-mog-violet"
+          style={{ animationDelay: "0.15s" }}
+        />
+        <span
+          className="h-2 w-2 animate-pulse-dot rounded-full bg-mog-violet"
+          style={{ animationDelay: "0.3s" }}
+        />
+      </div>
+      <p className="mt-5 text-sm uppercase tracking-[0.32em] text-white/60">
+        Searching for opponent…
+      </p>
+      <p className="mt-2 font-mono text-2xl text-white/80">
+        {Math.floor(seconds / 60).toString().padStart(2, "0")}:
+        {(seconds % 60).toString().padStart(2, "0")}
+      </p>
+      <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/30">
+        {seconds < 10
+          ? "Looking for someone online…"
+          : seconds < 30
+            ? "Still searching — quiet right now."
+            : "Hang tight — fewer players this hour."}
+      </p>
+      <button
+        onClick={onCancel}
+        className="mt-7 rounded-lg border border-white/10 bg-white/[0.02] px-5 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
