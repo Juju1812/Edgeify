@@ -10,11 +10,13 @@ export function getStripe(): Stripe | null {
     return null;
   }
   _stripe = new Stripe(key, {
-    // Use the account's pinned dashboard version rather than a hard-
-    // coded one — having SDK type defaults that lead the account's
-    // version was suspected of triggering StripeConnectionError on the
-    // first call from Vercel iad1 → api.stripe.com.
-    // apiVersion intentionally omitted.
+    // The SDK's default Node HTTP client uses `node:https` directly,
+    // which has shown silent failures from Vercel iad1 on the
+    // nodejs24.x runtime — every checkout returned StripeConnection-
+    // Error with no api.stripe.com call recorded in telemetry. Forcing
+    // the fetch-based client routes through Node's built-in undici and
+    // works correctly on Node 24.
+    httpClient: Stripe.createFetchHttpClient(),
     maxNetworkRetries: 3,
     timeout: 30000
   });
