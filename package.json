@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
     "@prisma/client": "^5.22.0",
+    "@types/qrcode": "^1.5.6",
     "@upstash/redis": "^1.37.0",
     "@vercel/og": "^0.11.1",
     "bcryptjs": "^3.0.3",
@@ -24,6 +25,7 @@
     "next": "14.2.18",
     "next-auth": "^4.24.10",
     "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

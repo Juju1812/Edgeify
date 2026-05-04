@@ -184,6 +184,9 @@ export default function ProfilePage() {
         <EloChart history={user.matchHistory} currentElo={user.elo} />
       )}
 
+      {/* H2H rivals — top 3 most-played opponents */}
+      {user.matchHistory.length >= 3 && <RivalsCard history={user.matchHistory} />}
+
       {/* Replay modal */}
       <ReplayModal match={replay} onClose={() => setReplay(null)} />
 
@@ -361,20 +364,20 @@ function EloChart({
             );
           })}
           <path d={areaPath} fill="url(#eloFill)" opacity={0.45} />
-          <path d={linePath} stroke="#a855f7" strokeWidth={2} fill="none" />
+          <path d={linePath} stroke="#22e9ff" strokeWidth={2} fill="none" />
           {series.map((e, i) => (
             <circle
               key={i}
               cx={PAD + i * xStep}
               cy={y(e)}
               r={i === series.length - 1 ? 5 : 2}
-              fill={i === series.length - 1 ? "#d946ef" : "#a855f7"}
+              fill={i === series.length - 1 ? "#ff5d8f" : "#22e9ff"}
             />
           ))}
           <defs>
             <linearGradient id="eloFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#a855f7" stopOpacity="0.5" />
-              <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+              <stop offset="0%" stopColor="#22e9ff" stopOpacity="0.5" />
+              <stop offset="100%" stopColor="#22e9ff" stopOpacity="0" />
             </linearGradient>
           </defs>
         </svg>
@@ -382,6 +385,74 @@ function EloChart({
           <span>{ranked.length} matches</span>
           <span>peak {Math.max(...series)}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rivals card — surfaces your top 3 most-played opponents with the
+ * head-to-head record. A small social hook that gives the long match
+ * history a narrative feel.
+ */
+function RivalsCard({ history }: { history: MatchRecord[] }) {
+  const tally = new Map<
+    string,
+    { name: string; wins: number; losses: number; lastPlayed: number }
+  >();
+  for (const m of history) {
+    const t = tally.get(m.opponentName) || {
+      name: m.opponentName,
+      wins: 0,
+      losses: 0,
+      lastPlayed: 0
+    };
+    if (m.won) t.wins += 1;
+    else t.losses += 1;
+    t.lastPlayed = Math.max(t.lastPlayed, m.playedAt);
+    tally.set(m.opponentName, t);
+  }
+  const ranked = [...tally.values()]
+    .sort((a, b) => b.wins + b.losses - (a.wins + a.losses))
+    .slice(0, 3);
+  if (ranked.length === 0) return null;
+
+  return (
+    <div className="mt-10">
+      <h2 className="label-xs mb-3">Top Rivals</h2>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {ranked.map((r) => {
+          const total = r.wins + r.losses;
+          const wr = total > 0 ? Math.round((r.wins / total) * 100) : 0;
+          return (
+            <div key={r.name} className="glass rounded-2xl p-5">
+              <p className="truncate text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                {r.name}
+              </p>
+              <p className="mt-1 text-[10px] uppercase tracking-[0.32em] text-white/40">
+                {total} match{total === 1 ? "" : "es"}
+              </p>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="stat-mono text-2xl text-emerald-300">
+                  {r.wins}
+                </span>
+                <span className="text-white/30">·</span>
+                <span className="stat-mono text-2xl text-rose-300">
+                  {r.losses}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-rose-500/20">
+                <div
+                  className="h-full bg-emerald-500/70"
+                  style={{ width: `${wr}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/40">
+                {wr}% W
+              </p>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

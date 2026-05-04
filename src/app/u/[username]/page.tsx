@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import QRCode from "qrcode";
 import { Footer } from "@/components/Footer";
 import { Redis } from "@upstash/redis";
 import { rankFromElo } from "@/lib/rank";
 
-export const runtime = "edge";
+// QRCode (Node) needs the Node runtime; the rest of the page works fine
+// either way. We pre-render the SVG at request time and inline it.
+export const runtime = "nodejs";
 export const revalidate = 60;
 
 type ProfileSummary = {
@@ -115,19 +118,22 @@ export default async function PublicProfilePage({
         </div>
       </div>
 
-      <div className="mt-10 glass rounded-2xl p-6">
-        <p className="label-xs">Challenge</p>
-        <p className="mt-2 text-sm text-white/70">
-          Want to face off against {profile.username}? Hop into the Arena and
-          queue for a Random Match — if you&apos;re close in ELO you&apos;ll
-          probably get matched.
-        </p>
-        <Link
-          href="/arena"
-          className="mt-4 inline-block rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
-        >
-          Enter Arena →
-        </Link>
+      <div className="mt-10 grid gap-4 md:grid-cols-[1fr_auto]">
+        <div className="glass rounded-2xl p-6">
+          <p className="label-xs text-edge-cyan">Challenge</p>
+          <p className="mt-2 text-sm text-white/70">
+            Want to face off against {profile.username}? Hop into the Arena and
+            queue for a Random Match — if you&apos;re close in ELO you&apos;ll
+            probably get matched.
+          </p>
+          <Link
+            href="/arena"
+            className="mt-4 inline-block rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-6 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25"
+          >
+            Enter Arena →
+          </Link>
+        </div>
+        <ProfileQR username={profile.username} />
       </div>
 
       <Footer />
@@ -148,6 +154,39 @@ function Stat({
         {label}
       </span>
       <span className="font-mono text-base text-white">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Server-rendered QR code pointing at the public profile URL. Lets
+ * players show their phone to quickly share their rank card.
+ */
+async function ProfileQR({ username }: { username: string }) {
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://edgify.app";
+  const url = `${base}/u/${encodeURIComponent(username)}`;
+  let svg = "";
+  try {
+    svg = await QRCode.toString(url, {
+      type: "svg",
+      margin: 1,
+      width: 160,
+      color: { dark: "#22e9ff", light: "#00000000" }
+    });
+  } catch {
+    return null;
+  }
+  return (
+    <div className="glass flex flex-col items-center justify-center gap-2 rounded-2xl p-4">
+      <p className="label-xs text-edge-cyan">Scan</p>
+      <div
+        aria-label="QR code to this profile"
+        className="rounded-lg bg-black/40 p-2"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+      <p className="text-[10px] uppercase tracking-[0.22em] text-white/40">
+        /u/{username}
+      </p>
     </div>
   );
 }

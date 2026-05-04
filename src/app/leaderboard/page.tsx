@@ -20,6 +20,7 @@ type Entry = {
 export default function LeaderboardPage() {
   const { user, status } = useUser();
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"global" | "friends">("global");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -69,12 +70,23 @@ export default function LeaderboardPage() {
     return rest.sort((a, b) => b.elo - a.elo);
   }, [entries, user, status]);
 
+  const friendsSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of user.friends) s.add(f.toLowerCase());
+    if (user.username) s.add(user.username.toLowerCase());
+    return s;
+  }, [user.friends, user.username]);
+
   const filtered = useMemo(
     () =>
-      all.filter(
-        (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
-      ),
-    [all, query]
+      all
+        .filter((u) =>
+          tab === "friends" ? friendsSet.has(u.username.toLowerCase()) : true
+        )
+        .filter(
+          (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
+        ),
+    [all, query, tab, friendsSet]
   );
 
   const myIndex = all.findIndex(
@@ -93,28 +105,40 @@ export default function LeaderboardPage() {
 
       <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="label-xs">Season 1</p>
-          <h1 className="heading-card mt-2 text-3xl">Global Rank</h1>
+          <p className="label-xs text-edge-cyan">Season 1</p>
+          <h1 className="heading-display mt-2 text-4xl">Leaderboard</h1>
           <p className="mt-1 text-sm text-white/50">
-            {loading ? "Loading…" : `Top ${all.length} Adams`}
+            {loading
+              ? "Loading…"
+              : tab === "friends"
+                ? `${filtered.length} friend${filtered.length === 1 ? "" : "s"} on the board`
+                : `Top ${all.length} ranked players`}
           </p>
         </div>
         {myRank !== null && (
           <div className="glass rounded-xl px-4 py-3 text-right">
             <p className="label-xs text-white/40">Your position</p>
-            <p className="text-xl font-bold text-cyan-300">#{myRank}</p>
+            <p className="stat-mono text-xl text-edge-cyan">#{myRank}</p>
           </div>
         )}
       </div>
 
       {all.length > 0 && (
         <div className="mt-6 flex flex-wrap gap-3">
+          <div className="inline-flex rounded-lg border border-white/10 bg-black/30 p-1">
+            <TabButton active={tab === "global"} onClick={() => setTab("global")}>
+              Global
+            </TabButton>
+            <TabButton active={tab === "friends"} onClick={() => setTab("friends")}>
+              Friends ({user.friends.length})
+            </TabButton>
+          </div>
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search username…"
-            className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white placeholder:text-white/30 outline-none focus:border-mog-violet"
+            className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white placeholder:text-white/30 outline-none focus:border-edge-cyan"
           />
         </div>
       )}
@@ -129,7 +153,7 @@ export default function LeaderboardPage() {
           </p>
           <Link
             href="/lab"
-            className="mt-6 inline-block rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+            className="mt-6 inline-block rounded-lg border border-edge-cyan/50 bg-edge-cyan/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/30"
           >
             Open The Lab →
           </Link>
@@ -161,7 +185,7 @@ export default function LeaderboardPage() {
                   key={u.username}
                   className={
                     "grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.02] px-5 py-3 text-sm transition " +
-                    (isMe ? "bg-mog-violet/10" : "hover:bg-white/[0.02]")
+                    (isMe ? "bg-edge-cyan/10" : "hover:bg-white/[0.02]")
                   }
                 >
                   <span className="font-mono text-white/40">#{i + 1}</span>
@@ -176,7 +200,7 @@ export default function LeaderboardPage() {
                         )}
                         {u.username}
                         {isMe && (
-                          <span className="ml-2 rounded-full bg-mog-violet/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-mog-violet">
+                          <span className="ml-2 rounded-full bg-edge-cyan/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-edge-cyan">
                             YOU
                           </span>
                         )}
@@ -207,6 +231,30 @@ export default function LeaderboardPage() {
 
       <Footer />
     </main>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "rounded-md px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition " +
+        (active
+          ? "bg-edge-cyan/20 text-edge-cyan"
+          : "text-white/45 hover:text-white/80")
+      }
+    >
+      {children}
+    </button>
   );
 }
 

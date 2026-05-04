@@ -10,6 +10,12 @@ import { rankFromElo } from "@/lib/rank";
 import { applyMatchResult, POWERUP_META } from "@/lib/season";
 import { findOpponent, type SeedUser } from "@/lib/seed-users";
 import { useUser } from "@/lib/user-context";
+import {
+  matchRecapQuote,
+  suggestedPowerUp,
+  winProbability,
+  xpBreakdown
+} from "@/lib/match-meta";
 import type { EdgeScoreBreakdown, GameMode, MatchRecord, PowerUpId } from "@/lib/types";
 
 type Mode = "select" | "quick" | "live";
@@ -423,6 +429,14 @@ function Lobby({
     { id: "timeStop", count: user.powerUps.timeStop || 0 },
     { id: "critical", count: user.powerUps.critical || 0 }
   ];
+  const recommended = suggestedPowerUp({
+    recentMatches: user.matchHistory.slice(0, 8).map((m) => ({
+      won: m.won,
+      myScore: m.myScore,
+      oppScore: m.oppScore
+    })),
+    streak: user.streak
+  });
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -479,13 +493,14 @@ function Lobby({
         ))}
       </div>
 
-      {/* Power-up arming */}
+      {/* Power-up arming — with "Smart pick" highlight on the suggested one */}
       <div className="mx-auto mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
         {powerUpInventory.map(({ id, count }) => {
           const meta = POWERUP_META[id];
           const armed =
             id === "boost" ? boostActive : armedPowerUps.has(id);
           const ownedHandled = id === "boost" ? user.edgeBoosts > 0 : count > 0;
+          const isSmart = recommended === id && ownedHandled && !armed;
           return (
             <button
               key={id}
@@ -497,17 +512,24 @@ function Lobby({
               disabled={!ownedHandled}
               title={meta.description}
               className={
-                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] transition " +
+                "relative flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] transition " +
                 (armed
-                  ? "border-mog-pink bg-mog-pink/20 text-white"
+                  ? "border-edge-cyan bg-edge-cyan/20 text-white"
                   : ownedHandled
-                    ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
+                    ? isSmart
+                      ? "border-edge-coral/60 bg-edge-coral/10 text-edge-coral hover:border-edge-coral"
+                      : "border-edge-cyan/30 bg-edge-cyan/5 text-edge-cyan hover:border-edge-cyan/60"
                     : "border-white/10 bg-white/[0.02] text-white/30")
               }
             >
               <span className="text-base">{meta.emoji}</span>
               <span>{meta.name}</span>
               <span className="opacity-60">×{count}</span>
+              {isSmart && (
+                <span className="absolute -right-1 -top-1 rounded-full bg-edge-coral px-1.5 py-0.5 text-[7px] font-bold tracking-[0.18em] text-black">
+                  PICK
+                </span>
+              )}
             </button>
           );
         })}
@@ -584,38 +606,63 @@ function Versus({ opponent }: { opponent: SeedUser }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
   const oppRank = rankFromElo(opponent.elo);
+  const myProb = Math.round(winProbability(user.elo, opponent.elo) * 100);
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8"
+      className="space-y-5"
     >
-      <PlayerCard
-        side="left"
-        name={user.username!}
-        elo={user.elo}
-        rankLabel={myRank.label}
-        rankColor={myRank.color}
-        rankEmoji={myRank.emoji}
-        photoDataUrl={user.faceDataUrl}
-      />
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8">
+        <PlayerCard
+          side="left"
+          name={user.username!}
+          elo={user.elo}
+          rankLabel={myRank.label}
+          rankColor={myRank.color}
+          rankEmoji={myRank.emoji}
+          photoDataUrl={user.faceDataUrl}
+        />
+        <motion.div
+          initial={{ scale: 0, rotate: -45 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 200, damping: 12, delay: 0.2 }}
+          className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-edge-cyan bg-black text-base font-bold tracking-[0.18em] text-edge-cyan shadow-glow sm:h-20 sm:w-20 sm:text-xl"
+        >
+          VS
+        </motion.div>
+        <PlayerCard
+          side="right"
+          name={opponent.username}
+          elo={opponent.elo}
+          rankLabel={oppRank.label}
+          rankColor={oppRank.color}
+          rankEmoji={oppRank.emoji}
+        />
+      </div>
+
+      {/* ELO win-probability widget — shows the band-based prediction
+          before the rounds start, framing the matchup. */}
       <motion.div
-        initial={{ scale: 0, rotate: -45 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: "spring", stiffness: 200, damping: 12, delay: 0.2 }}
-        className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-mog-violet bg-black text-base font-bold tracking-[0.18em] text-mog-violet shadow-glow sm:h-20 sm:w-20 sm:text-xl"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="mx-auto max-w-md rounded-xl border border-white/[0.06] bg-black/30 p-4"
       >
-        VS
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.32em] text-white/45">
+          <span>Win probability</span>
+          <span className="stat-mono text-edge-cyan">{myProb}%</span>
+        </div>
+        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full">
+          <div className="bg-edge-cyan/70" style={{ width: `${myProb}%` }} />
+          <div className="bg-edge-coral/50" style={{ width: `${100 - myProb}%` }} />
+        </div>
+        <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/35">
+          ELO Δ {opponent.elo - user.elo >= 0 ? "+" : ""}
+          {opponent.elo - user.elo} · expected matchup
+        </p>
       </motion.div>
-      <PlayerCard
-        side="right"
-        name={opponent.username}
-        elo={opponent.elo}
-        rankLabel={oppRank.label}
-        rankColor={oppRank.color}
-        rankEmoji={oppRank.emoji}
-      />
     </motion.div>
   );
 }
@@ -830,6 +877,25 @@ function Result({
   opponent: SeedUser;
   onAgain: () => void;
 }) {
+  const { user } = useUser();
+  const myWins = result.rounds.reduce((s, r) => s + (r.me > r.opp ? 1 : 0), 0);
+  const oppWins = result.rounds.reduce((s, r) => s + (r.opp > r.me ? 1 : 0), 0);
+  const xp = xpBreakdown({
+    won: result.won,
+    streakAfter: user.streak,
+    practice: false,
+    mode: "bo3"
+  });
+  const recap = matchRecapQuote({
+    won: result.won,
+    myWins,
+    oppWins,
+    eloDelta: result.delta,
+    oppElo: opponent.elo,
+    myElo: user.elo - result.delta,
+    oppName: opponent.username
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96 }}
@@ -850,7 +916,7 @@ function Result({
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ delay: 0.2, type: "spring", stiffness: 180 }}
-        className="heading-card mt-2 text-5xl"
+        className="heading-display mt-2 text-5xl"
       >
         {result.won ? "MOGGED" : "MOGGED ON"}
       </motion.h2>
@@ -872,10 +938,45 @@ function Result({
         {result.delta >= 0 ? "+" : ""}
         {result.delta} ELO
       </motion.p>
+
+      {/* Recap quote — one-liner generated from the rounds + delta */}
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.7 }}
+        className="mx-auto mt-4 max-w-md text-sm italic text-white/55"
+      >
+        “{recap}”
+      </motion.p>
+
+      {/* XP breakdown — shows base + streak + mode mult */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.8 }}
+        className="mx-auto mt-6 flex max-w-sm items-center justify-between rounded-xl border border-edge-cyan/20 bg-edge-cyan/[0.04] px-5 py-3"
+      >
+        <span className="text-[10px] uppercase tracking-[0.32em] text-white/50">
+          XP earned
+        </span>
+        <span className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-white/65">
+          <span className="stat-mono text-white">{xp.base}</span>
+          <span className="text-white/30">base</span>
+          {xp.streakBonus > 0 && (
+            <>
+              <span className="text-white/20">+</span>
+              <span className="stat-mono text-edge-coral">{xp.streakBonus}</span>
+              <span className="text-white/30">streak</span>
+            </>
+          )}
+        </span>
+        <span className="stat-mono text-edge-cyan">+{xp.total}</span>
+      </motion.div>
+
       <div className="mt-7 flex flex-wrap justify-center gap-3">
         <button
           onClick={onAgain}
-          className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+          className="rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-6 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25"
         >
           Queue Again →
         </button>

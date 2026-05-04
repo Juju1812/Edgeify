@@ -16,6 +16,7 @@ import {
 import { playSfx } from "@/lib/audio";
 import { useUser } from "@/lib/user-context";
 import type { ArColorId, EdgeScoreBreakdown } from "@/lib/types";
+import { LightingCheck } from "./LightingCheck";
 
 const AR_COLOR_HEX_LAB: Record<ArColorId, string> = {
   green: "#4ade80",
@@ -1020,13 +1021,14 @@ export function FaceScanner({
 
         {phase === "ready" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/40 text-center">
-            <p className="label-xs text-white/70">Ready to scan</p>
+            <p className="label-xs text-edge-cyan">Ready to scan</p>
             <p className="max-w-sm px-6 text-sm text-white/80">
               Look straight at the camera. Blink once to confirm liveness.
             </p>
+            <LightingCheck videoRef={videoRef} />
             <button
               onClick={beginScan}
-              className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+              className="rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-6 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25"
             >
               Begin Scan
             </button>

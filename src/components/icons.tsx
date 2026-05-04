@@ -71,6 +71,37 @@ export function EdgeMarkMono(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Symmetry — vertical mirror axis with two reflected arcs. */
+export function SymmetryIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 3v18" strokeDasharray="2 2" />
+      <path d="M5 7c2 2 2 8 0 10M19 7c-2 2-2 8 0 10" />
+    </svg>
+  );
+}
+
+/** Jawline — sharp angular V. */
+export function JawlineIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 7v3a8 8 0 008 8 8 8 0 008-8V7" />
+      <path d="M7 11l5 6 5-6" />
+    </svg>
+  );
+}
+
+/** Overall (composite) — concentric circle rings. */
+export function OverallIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function SwordsIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

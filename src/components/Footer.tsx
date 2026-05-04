@@ -10,6 +10,12 @@ export function Footer() {
           objective beauty judgment.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-white/50">
+          <Link href="/about" className="hover:text-white">
+            About
+          </Link>
+          <Link href="/whats-new" className="hover:text-white">
+            What&apos;s new
+          </Link>
           <Link href="/privacy" className="hover:text-white">
             Privacy
           </Link>
