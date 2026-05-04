@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useUser } from "@/lib/user-context";
 import { rankFromElo } from "@/lib/rank";
+import { OwnerBadge } from "./OwnerBadge";
 
 export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
   const { user, status, ready, playAsGuest } = useUser();
@@ -149,6 +150,7 @@ function RankPill({
     <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 backdrop-blur">
       <span className="text-[12px] font-semibold uppercase tracking-[0.22em] text-white">
         {username}
+        <OwnerBadge name={username} size="xs" />
       </span>
       <span className="h-3 w-px bg-white/15" />
       {isCalibrating ? (

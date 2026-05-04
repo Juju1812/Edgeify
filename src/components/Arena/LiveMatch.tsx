@@ -18,6 +18,7 @@ import { applyMatchResult } from "@/lib/season";
 import { coachingTip } from "@/lib/coaching";
 import { Confetti } from "@/components/Confetti";
 import { DeepAnalysis } from "@/components/Arena/DeepAnalysis";
+import { OwnerBadge } from "@/components/OwnerBadge";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -273,6 +274,12 @@ export function LiveMatch({
     setMicOn(!micOn);
   }
 
+  // Local video's natural aspect ratio (e.g. "1280 / 720" or "480 / 640").
+  // Used by the local PlayerTile to size its container so AR overlay
+  // and visible video stay aligned across desktop and mobile cameras.
+  const [localVideoAspect, setLocalVideoAspect] = useState<string>("4 / 3");
+  const [remoteVideoAspect, setRemoteVideoAspect] = useState<string>("4 / 3");
+
   // Edge Boost — armed before queuing, applies +10% to my round scores.
   const [boostArmed, setBoostArmed] = useState(false);
   const boostArmedRef = useRef(false);
@@ -322,6 +329,17 @@ export function LiveMatch({
   const weightAccumRef = useRef<number[]>([]);
   // Reusable small offscreen canvas for sharpness/brightness sampling.
   const qualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Last good landmarks + bbox so we can redraw the AR overlay across
+  // single-frame detector misses (prevents the mesh from flickering
+  // off whenever the user blinks or the detector drops a frame).
+  const lastDrawnLandmarksRef = useRef<Pt[] | null>(null);
+  const lastDrawnBoxRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const lastDrawnAtRef = useRef(0);
 
   // Canvas for the AR overlay on the local video tile during scanning.
   const localOverlayElRef = useRef<HTMLCanvasElement | null>(null);
@@ -331,6 +349,16 @@ export function LiveMatch({
     if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
       el.srcObject = remoteStreamRef.current;
       el.play().catch(() => {});
+    }
+    if (el) {
+      const sync = () => {
+        if (el.videoWidth > 0 && el.videoHeight > 0) {
+          setRemoteVideoAspect(`${el.videoWidth} / ${el.videoHeight}`);
+        }
+      };
+      sync();
+      el.addEventListener("loadedmetadata", sync);
+      el.addEventListener("resize", sync);
     }
   };
 
@@ -1057,6 +1085,30 @@ export function LiveMatch({
           ctx.clearRect(0, 0, overlay.width, overlay.height);
         }
 
+        // If detection missed but we have a recently-cached landmark
+        // set (≤ 250ms old), redraw the cache to keep the overlay
+        // stable across single-frame misses. Without this the AR
+        // mesh strobes off whenever the user blinks or the detector
+        // skips a frame on a slower phone.
+        const STALE_MS = 250;
+        const now = performance.now();
+        if (
+          (!det || det.detection.score < 0.55) &&
+          overlay &&
+          ctx &&
+          lastDrawnLandmarksRef.current &&
+          now - lastDrawnAtRef.current < STALE_MS
+        ) {
+          const arHex = AR_COLOR_HEX[user.arColor] || "#4ade80";
+          drawLiveOverlay(
+            ctx,
+            lastDrawnLandmarksRef.current,
+            lastDrawnBoxRef.current!,
+            overlay.width,
+            arHex
+          );
+        }
+
         if (det && det.detection.score >= 0.55) {
           const points: Pt[] = det.landmarks.positions.map((p) => ({
             x: p.x,
@@ -1150,6 +1202,15 @@ export function LiveMatch({
           if (overlay && ctx) {
             const arHex = AR_COLOR_HEX[user.arColor] || "#4ade80";
             drawLiveOverlay(ctx, points, det.detection.box, overlay.width, arHex);
+            // Cache for the gap-filling redraw on the next missed frame.
+            lastDrawnLandmarksRef.current = points;
+            lastDrawnBoxRef.current = {
+              x: det.detection.box.x,
+              y: det.detection.box.y,
+              width: det.detection.box.width,
+              height: det.detection.box.height
+            };
+            lastDrawnAtRef.current = performance.now();
           }
         }
       } catch {
@@ -1388,6 +1449,24 @@ export function LiveMatch({
               el.srcObject = localStreamRef.current;
               el.play().catch(() => {});
             }
+            // Sync the overlay canvas dimensions to the actual video
+            // resolution once metadata is known. Phones often produce
+            // 480x640 portrait or 720x1280 streams — without this the
+            // landmarks land in a tiny corner of the overlay because
+            // the canvas internal pixel space is hardcoded to 640x480.
+            if (el) {
+              const sync = () => {
+                const overlay = localOverlayElRef.current;
+                if (overlay && el.videoWidth > 0 && el.videoHeight > 0) {
+                  overlay.width = el.videoWidth;
+                  overlay.height = el.videoHeight;
+                  setLocalVideoAspect(`${el.videoWidth} / ${el.videoHeight}`);
+                }
+              };
+              sync();
+              el.addEventListener("loadedmetadata", sync);
+              el.addEventListener("resize", sync);
+            }
           }}
           oppRef={remoteVideoCallback}
           overlayRef={localOverlayCallback}
@@ -1408,6 +1487,8 @@ export function LiveMatch({
           chatInput={chatInput}
           setChatInput={setChatInput}
           onSendChat={sendChat}
+          localVideoAspect={localVideoAspect}
+          remoteVideoAspect={remoteVideoAspect}
         />
       )}
 
@@ -1677,7 +1758,9 @@ function Arena({
   chatLog,
   chatInput,
   setChatInput,
-  onSendChat
+  onSendChat,
+  localVideoAspect,
+  remoteVideoAspect
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1699,6 +1782,8 @@ function Arena({
   chatInput: string;
   setChatInput: (v: string) => void;
   onSendChat: () => void;
+  localVideoAspect?: string;
+  remoteVideoAspect?: string;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1762,6 +1847,7 @@ function Arena({
           isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
           reactions={reactions.filter((r) => r.from === "me")}
           blur={privacyBlur}
+          videoAspect={localVideoAspect}
         />
 
         <div className="flex items-center justify-center gap-2 md:flex-col">
@@ -1783,6 +1869,7 @@ function Arena({
           showScore={phase === "scanning" || phase === "between"}
           isWinner={phase === "between" && lastRound ? lastRound.opp > lastRound.me : null}
           reactions={reactions.filter((r) => r.from === "opp")}
+          videoAspect={remoteVideoAspect}
         />
       </div>
 
@@ -1903,6 +1990,9 @@ function PlayerTile(props: {
   isWinner: boolean | null;
   reactions?: ReactionPing[];
   blur?: boolean;
+  /** Source video's natural aspect ratio (e.g. "16 / 9") so the
+   *  visible tile and AR overlay stay aligned across cameras. */
+  videoAspect?: string;
 }) {
   const ringColor =
     props.isWinner === true
@@ -1914,7 +2004,10 @@ function PlayerTile(props: {
     <div
       className={`glass relative overflow-hidden rounded-2xl border-2 transition ${ringColor}`}
     >
-      <div className="relative aspect-[4/3] w-full bg-black">
+      <div
+        className="relative w-full bg-black"
+        style={{ aspectRatio: props.videoAspect || "4 / 3" }}
+      >
         <video
           ref={props.videoRef}
           playsInline
@@ -1956,6 +2049,7 @@ function PlayerTile(props: {
       <div className="border-t border-white/[0.04] bg-black/50 px-2 py-2 text-center">
         <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-white">
           {props.name}
+          <OwnerBadge name={props.name} size="xs" />
         </p>
         <p className="text-[9px] uppercase tracking-[0.32em]" style={{ color: props.rankColor }}>
           {props.rankEmoji} {props.rankLabel}

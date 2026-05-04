@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useUser } from "@/lib/user-context";
 import { EdgeMark } from "./icons";
+import { OwnerBadge } from "./OwnerBadge";
 
 const CURRENT_VER = "0.4.0";
 
@@ -92,6 +93,7 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               Signed in as{" "}
               <span className="font-semibold uppercase tracking-[0.18em] text-white">
                 {user.username}
+                <OwnerBadge name={user.username} size="xs" />
               </span>
               {status === "auth-no-scan" && (
                 <span className="ml-2 text-edge-cyan">· No scan yet</span>

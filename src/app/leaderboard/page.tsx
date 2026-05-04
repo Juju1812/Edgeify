@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Footer } from "@/components/Footer";
+import { OwnerBadge } from "@/components/OwnerBadge";
 import { rankFromElo } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
@@ -199,6 +200,7 @@ export default function LeaderboardPage() {
                           </span>
                         )}
                         {u.username}
+                        <OwnerBadge name={u.username} size="sm" />
                         {isMe && (
                           <span className="ml-2 rounded-full bg-edge-cyan/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-edge-cyan">
                             YOU

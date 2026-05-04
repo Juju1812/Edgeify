@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import QRCode from "qrcode";
 import { Footer } from "@/components/Footer";
+import { OwnerBadge } from "@/components/OwnerBadge";
 import { Redis } from "@upstash/redis";
 import { rankFromElo } from "@/lib/rank";
 
@@ -99,6 +100,7 @@ export default async function PublicProfilePage({
           <div className="border-t border-white/[0.04] px-4 py-4 text-center">
             <p className="text-base font-semibold uppercase tracking-[0.22em] text-white">
               {profile.username}
+              <OwnerBadge name={profile.username} size="sm" />
             </p>
             <p
               className="mt-1 text-[11px] uppercase tracking-[0.32em]"

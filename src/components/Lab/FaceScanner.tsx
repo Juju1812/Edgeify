@@ -516,6 +516,21 @@ export function FaceScanner({
   const totalSamplesRef = useRef(0);
   const scanStartRef = useRef(0);
 
+  // Last good frame's landmarks/box/avg/pose so the AR overlay can
+  // redraw the cached frame for ~250ms after a detector miss. Without
+  // this cache, the mesh flickers off whenever a frame doesn't return
+  // a face (blink, motion, slow phone).
+  const lastFrameLandmarksRef = useRef<Pt[] | null>(null);
+  const lastFrameBoxRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const lastFrameAvgRef = useRef<EdgeScoreBreakdown | null>(null);
+  const lastFramePoseRef = useRef<FacePose | null>(null);
+  const lastFrameAtRef = useRef(0);
+
   // Liveness state: adaptive thresholds derived from a baseline observed
   // during the first ~0.5s of the scan. Different faces have different
   // resting-EAR — a fixed threshold misses blinks for many users.
@@ -548,6 +563,41 @@ export function FaceScanner({
   const [blinks, setBlinks] = useState(0);
   const [liveEar, setLiveEar] = useState(0);
   const [skippedLiveness, setSkippedLiveness] = useState(false);
+  // Video's natural aspect ratio. Once we know it, we (a) size the
+  // overlay canvas's internal coordinates to match the source video so
+  // landmark coords align, and (b) shape the parent container to the
+  // same aspect so object-cover doesn't crop the visible face out of
+  // sync with the canvas drawing space.
+  const [videoAspect, setVideoAspect] = useState<string>("4 / 3");
+
+  // Wire a metadata listener that syncs both canvas internal dimensions
+  // and the parent's aspect ratio to the actual webcam stream. Without
+  // this, phones (often 480x640 portrait or 720x1280) draw landmarks
+  // in the wrong region of the overlay because the canvas is hardcoded
+  // to 640x480 internal pixels regardless of source.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const sync = () => {
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      if (vw > 0 && vh > 0) {
+        setVideoAspect(`${vw} / ${vh}`);
+        const overlay = overlayRef.current;
+        if (overlay) {
+          overlay.width = vw;
+          overlay.height = vh;
+        }
+      }
+    };
+    sync();
+    v.addEventListener("loadedmetadata", sync);
+    v.addEventListener("resize", sync);
+    return () => {
+      v.removeEventListener("loadedmetadata", sync);
+      v.removeEventListener("resize", sync);
+    };
+  }, [phase]); // re-bind when phase changes (e.g. video remounts)
 
   // ─── Model + camera bootstrap ───────────────────────────────────────
   async function start() {
@@ -735,6 +785,30 @@ export function FaceScanner({
     // await persisted but anything drawn after did not.
     ctx.clearRect(0, 0, W, H);
 
+    // If detection missed but we have a recently-cached landmark set
+    // (≤ 250ms old), redraw it to avoid flicker between frames.
+    const STALE_MS = 250;
+    const nowTs = performance.now();
+    if (
+      !detection &&
+      lastFrameLandmarksRef.current &&
+      lastFrameBoxRef.current &&
+      lastFrameAvgRef.current &&
+      lastFramePoseRef.current &&
+      nowTs - lastFrameAtRef.current < STALE_MS
+    ) {
+      drawAROverlay(
+        ctx,
+        lastFrameLandmarksRef.current,
+        lastFrameBoxRef.current,
+        lastFrameAvgRef.current,
+        W,
+        H,
+        lastFramePoseRef.current,
+        arColorHex
+      );
+    }
+
     if (detection) {
       const box = detection.detection.box;
       const points: Pt[] = detection.landmarks.positions.map((p) => ({
@@ -845,6 +919,17 @@ export function FaceScanner({
       // AR overlay — green dots on every landmark, cyan anchor points,
       // floating labels with live values per metric.
       drawAROverlay(ctx, points, box, avg, W, H, pose, arColorHex);
+      // Cache for the next-frame redraw on detector miss.
+      lastFrameLandmarksRef.current = points;
+      lastFrameBoxRef.current = {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height
+      };
+      lastFrameAvgRef.current = avg;
+      lastFramePoseRef.current = pose;
+      lastFrameAtRef.current = performance.now();
 
       // ─── Liveness via random-axis head movement ────────────────────
       // We picked a random challenge axis at scan start; require the
@@ -970,7 +1055,10 @@ export function FaceScanner({
   // ─── UI ──────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
-      <div className="glass relative aspect-[4/3] w-full overflow-hidden rounded-2xl">
+      <div
+        className="glass relative w-full overflow-hidden rounded-2xl"
+        style={{ aspectRatio: videoAspect }}
+      >
         <video
           ref={videoRef}
           width={640}

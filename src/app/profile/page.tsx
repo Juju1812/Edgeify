@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
+import { OwnerBadge } from "@/components/OwnerBadge";
 import { rankFromElo, RANKS } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
@@ -72,6 +73,7 @@ export default function ProfilePage() {
           <div className="border-t border-white/[0.04] px-4 py-4 text-center">
             <p className="text-base font-semibold uppercase tracking-[0.22em] text-white">
               {user.username}
+              <OwnerBadge name={user.username} size="sm" />
               {user.countryCode && (
                 <span className="ml-2 text-base" title={user.countryCode}>
                   {flagFor(user.countryCode)}

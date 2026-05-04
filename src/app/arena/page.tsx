@@ -16,6 +16,7 @@ import {
   winProbability,
   xpBreakdown
 } from "@/lib/match-meta";
+import { OwnerBadge } from "@/components/OwnerBadge";
 import type { EdgeScoreBreakdown, GameMode, MatchRecord, PowerUpId } from "@/lib/types";
 
 type Mode = "select" | "quick" | "live";
@@ -711,6 +712,7 @@ function PlayerCard({
       <div className="border-t border-white/[0.04] px-3 py-3 text-center sm:px-4">
         <p className="truncate text-sm font-semibold uppercase tracking-[0.18em] text-white">
           {name}
+          <OwnerBadge name={name} size="xs" />
         </p>
         <p
           className="text-[10px] uppercase tracking-[0.32em]"
