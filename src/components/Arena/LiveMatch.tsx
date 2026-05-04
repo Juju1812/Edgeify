@@ -700,6 +700,55 @@ export function LiveMatch({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchResult]);
 
+  // Stall heartbeat — once we're in the live phases, sample remote
+  // video.currentTime every 2s. If it hasn't advanced since last
+  // sample (and we expect it to), call .play() to resume. Also re-play
+  // both videos when the tab regains focus. This is the safety net for
+  // the "round 2 frozen opponent" symptom on flaky mobile networks.
+  useEffect(() => {
+    if (
+      phase !== "scanning" &&
+      phase !== "between" &&
+      phase !== "vs"
+    ) {
+      return;
+    }
+    let lastRemoteTime = -1;
+    let stallCount = 0;
+    const tick = window.setInterval(() => {
+      const r = remoteVideoElRef.current;
+      if (r && r.srcObject) {
+        if (r.paused) {
+          r.play().catch(() => {});
+        } else if (r.currentTime === lastRemoteTime) {
+          stallCount += 1;
+          if (stallCount >= 2) {
+            // Two consecutive 2s windows with no progress → kick.
+            r.play().catch(() => {});
+            stallCount = 0;
+          }
+        } else {
+          stallCount = 0;
+          lastRemoteTime = r.currentTime;
+        }
+      }
+      const l = localVideoRef.current;
+      if (l && l.paused && l.srcObject) {
+        l.play().catch(() => {});
+      }
+    }, 2000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") kickVideosToPlay();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [phase]);
+
   function teardown() {
     if (scanRafRef.current) cancelAnimationFrame(scanRafRef.current);
     scanRafRef.current = null;
@@ -1006,19 +1055,26 @@ export function LiveMatch({
           const pollRes = await fetch("/api/match/poll", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ peerId: myId })
+            body: JSON.stringify({ peerId: myId, elo: user.elo })
           });
           const pollJson = await pollRes.json();
           if (pollJson?.matched) {
-            // Server matched us with someone, opponent will dial us
-            // (we already wired peer.on("call") and peer.on("connection")
-            // above to accept the incoming connection).
             matchedRef.current = true;
             isHostRef.current = !!pollJson.iAmHost;
             window.clearInterval(tick);
             pollTimerRef.current = null;
-            // Don't change phase here — we'll transition when the
-            // data conn opens and `hello` is exchanged.
+            // If the poll claimed someone for us (we're the GUEST in
+            // step-2 of /api/match/poll), we need to dial them. If a
+            // remote peer claimed us via /enqueue (we're the HOST), the
+            // dial will arrive on peer.on("call") / peer.on("connection")
+            // already wired above.
+            if (!pollJson.iAmHost) {
+              const opp = pollJson.opponentPeerId as string;
+              const conn = peer.connect(opp, { reliable: true });
+              wireDataConnection(conn);
+              const call = peer.call(opp, localStreamRef.current!);
+              call.on("stream", attachRemoteStream);
+            }
           }
         } catch {
           /* network blip — keep polling */
@@ -1200,6 +1256,7 @@ export function LiveMatch({
         setLiveMine(0);
         setLiveOpp(0);
         setPhase("scanning");
+        kickVideosToPlay();
         runScanLoop(msg.idx);
         break;
       case "score-tick":
@@ -1246,8 +1303,33 @@ export function LiveMatch({
     setLiveMine(0);
     setLiveOpp(0);
     setPhase("scanning");
+    kickVideosToPlay();
     playSfx("matchStart");
     runScanLoop(idx);
+  }
+
+  /**
+   * Force both video elements to resume playback. Browsers (especially
+   * mobile Safari) sometimes pause the inbound WebRTC track when the
+   * page goes through a heavy state transition or briefly loses focus,
+   * which manifests as the opponent appearing frozen from round 2 on.
+   * Calling .play() is a no-op if already playing.
+   */
+  function kickVideosToPlay() {
+    const r = remoteVideoElRef.current;
+    if (r) {
+      if (r.srcObject !== remoteStreamRef.current && remoteStreamRef.current) {
+        r.srcObject = remoteStreamRef.current;
+      }
+      r.play().catch(() => {});
+    }
+    const l = localVideoRef.current;
+    if (l) {
+      if (l.srcObject !== localStreamRef.current && localStreamRef.current) {
+        l.srcObject = localStreamRef.current;
+      }
+      l.play().catch(() => {});
+    }
   }
 
   // When the very first round starts (idx 0), reset the resolved-round

@@ -19,7 +19,7 @@ const FEATURES: Array<{
   { feature: "Achievements + replays", free: true, pro: true },
   { feature: "Highlight clip generator", free: true, pro: true },
   { feature: "AI Deep Analysis", free: "3/month", pro: "Unlimited" },
-  { feature: "AR cosmetic filters", free: "2 free", pro: "All 6" },
+  { feature: "AR cosmetic filters", free: true, pro: true },
   { feature: "Emote loadouts", free: "2 prebuilt", pro: "All + custom saves" },
   { feature: "Profile accent color", free: "8 presets", pro: "Full hex picker" },
   { feature: "Priority matchmaking", free: "—", pro: "Skip ahead in queue" },

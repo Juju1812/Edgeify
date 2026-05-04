@@ -14,8 +14,16 @@ export function isPro(user: UserState | null | undefined): boolean {
 /** Daily / monthly Deep Analysis quotas. */
 export const FREE_DEEP_ANALYSES_PER_MONTH = 3;
 
-/** AR filters available on the free tier. The rest are Pro. */
-export const FREE_AR_FILTERS = ["none", "shades"] as const;
+/** AR filters available on the free tier. All cosmetic filters are
+ *  free — the AR engine itself is part of the core game loop. */
+export const FREE_AR_FILTERS = [
+  "none",
+  "crown",
+  "mustache",
+  "shades",
+  "horns",
+  "halo"
+] as const;
 
 /** Free emote loadouts. The rest are Pro. */
 export const FREE_LOADOUTS = ["classic", "friendly"] as const;
