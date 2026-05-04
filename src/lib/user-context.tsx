@@ -255,6 +255,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           saveToken(null);
           tokenRef.current = null;
           setAuthedRemote(false);
+        } else if (res.status === 422) {
+          // Anti-cheat rejected — server kept the previous state and
+          // returned the authoritative version. Reconcile so leader-
+          // board reads stay honest. We don't toast this to avoid
+          // confusing legitimate edge-case users (e.g. flaky network
+          // causing an out-of-order sync).
+          try {
+            const data = await res.json();
+            if (data?.profile) {
+              const repaired = reconcileLifetime({
+                ...DEFAULT_USER,
+                ...data.profile
+              });
+              setUser(repaired);
+              saveToStorage(repaired);
+              lastSyncedRef.current = JSON.stringify(repaired);
+            }
+          } catch {
+            /* couldn't parse — ignore */
+          }
         }
       } catch {
         /* network blip — try again next change */

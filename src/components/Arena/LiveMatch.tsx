@@ -1690,7 +1690,7 @@ function Arena({
   return (
     <div>
       <div className="mb-3 flex flex-col items-center gap-1 text-center">
-        {phase === "vs" && <p className="label-xs text-mog-violet">FACE OFF</p>}
+        {phase === "vs" && <p className="label-xs text-edge-cyan">FACE OFF</p>}
         {phase === "scanning" && (
           <>
             <p className="label-xs">Round {round + 1} of 3</p>
@@ -1771,80 +1771,20 @@ function Arena({
         />
       )}
 
-      {/* Emoji reaction bar + mic toggle */}
-      <div className="mt-3 flex items-center justify-center gap-2">
-        <button
-          onClick={onMicToggle}
-          className={
-            "rounded-full border px-3 py-1.5 text-lg transition active:scale-95 " +
-            (micOn
-              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
-              : "border-white/10 bg-white/[0.03] text-white/50")
-          }
-          aria-label={micOn ? "Mic on" : "Mic off"}
-          title={micOn ? "Mic on — opponent hears you" : "Mic off — tap to talk"}
-        >
-          {micOn ? "🎙️" : "🔇"}
-        </button>
-        {(reactionEmojis || DEFAULT_REACTIONS).map((e) => (
-          <button
-            key={e}
-            onClick={() => onReact(e)}
-            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-lg transition hover:scale-110 hover:border-mog-violet/50 hover:bg-mog-violet/10 active:scale-95"
-            aria-label={`React with ${e}`}
-          >
-            {e}
-          </button>
-        ))}
-      </div>
-
-      {/* In-match text chat (lightweight, ephemeral) */}
-      <div className="mx-auto mt-3 w-full max-w-md">
-        <div className="glass max-h-32 overflow-y-auto rounded-lg p-2 text-xs">
-          {chatLog.length === 0 ? (
-            <p className="text-center text-[10px] uppercase tracking-[0.22em] text-white/30">
-              Match chat
-            </p>
-          ) : (
-            chatLog.map((m) => (
-              <div
-                key={m.id}
-                className={
-                  "px-2 py-1 " +
-                  (m.from === "me" ? "text-emerald-200" : "text-white/80")
-                }
-              >
-                <span className="mr-2 text-[9px] uppercase tracking-[0.22em] text-white/40">
-                  {m.from === "me" ? "you" : "opp"}
-                </span>
-                {m.text}
-              </div>
-            ))
-          )}
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSendChat();
-          }}
-          className="mt-2 flex gap-2"
-        >
-          <input
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value.slice(0, 140))}
-            placeholder="Send a message…"
-            maxLength={140}
-            className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white outline-none focus:border-mog-violet"
-          />
-          <button
-            type="submit"
-            disabled={!chatInput.trim()}
-            className="rounded-lg border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 disabled:opacity-40"
-          >
-            Send
-          </button>
-        </form>
-      </div>
+      {/* Reaction + mic + chat — mobile-first toolbar.
+          Uses 44px touch targets (Apple HIG / Material guideline).
+          Chat collapses behind a toggle on small screens to save vertical
+          space; expands inline on desktop. */}
+      <MobileToolbar
+        micOn={micOn}
+        onMicToggle={onMicToggle}
+        onReact={onReact}
+        reactionEmojis={reactionEmojis}
+        chatLog={chatLog}
+        chatInput={chatInput}
+        setChatInput={setChatInput}
+        onSendChat={onSendChat}
+      />
 
       {phase === "scanning" && (
         <div className="mt-4">
@@ -2062,6 +2002,77 @@ function Result({
     result.won && (result.delta >= 20 || (myWins >= 2 && oppWins === 0));
   const [sharing, setSharing] = useState(false);
   const [shareDone, setShareDone] = useState<"shared" | "downloaded" | null>(null);
+  const [clipping, setClipping] = useState(false);
+  const [clipDone, setClipDone] = useState<"shared" | "downloaded" | null>(null);
+
+  /**
+   * Render the 6.5s vertical highlight clip and either share via the
+   * native share sheet (TikTok/Insta accept webm) or fall back to a
+   * direct download.
+   */
+  async function makeHighlight() {
+    if (clipping) return;
+    setClipping(true);
+    setClipDone(null);
+    try {
+      const { renderHighlightClip } = await import("@/lib/highlight-clip");
+      const myWinsLocal = result.rounds.reduce(
+        (s, r) => s + (r.me > r.opp ? 1 : 0),
+        0
+      );
+      const oppWinsLocal = result.rounds.reduce(
+        (s, r) => s + (r.opp > r.me ? 1 : 0),
+        0
+      );
+      const rank = rankFromElo(user.elo);
+      const blob = await renderHighlightClip({
+        myName: user.username || "PLAYER",
+        oppName: opponent.username,
+        myFace: result.myFaceDataUrl || user.faceDataUrl,
+        oppFace: result.oppFaceDataUrl,
+        rounds: result.rounds.map((r, i) => ({
+          criterion: ROUND_CRITERIA[i]?.label || "?",
+          me: r.me,
+          opp: r.opp
+        })),
+        won: result.won,
+        eloDelta: result.delta,
+        rankLabel: rank.label,
+        rankColor: rank.color,
+        rankEmoji: rank.emoji
+      });
+      // Mark unused variables (keep for future telemetry).
+      void myWinsLocal;
+      void oppWinsLocal;
+      if (!blob) return;
+      const file = new File([blob], `edgify-clip-${Date.now()}.webm`, {
+        type: blob.type
+      });
+      const navAny = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+      };
+      if (navAny.canShare && navAny.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "Edgify Highlight",
+          text: "Just had a 1v1 face-off on Edgify."
+        });
+        setClipDone("shared");
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+        setClipDone("downloaded");
+      }
+    } catch {
+      /* cancelled / unsupported */
+    } finally {
+      setClipping(false);
+    }
+  }
 
   async function share() {
     if (sharing) return;
@@ -2166,6 +2177,20 @@ function Result({
           </button>
         )}
         <button
+          onClick={makeHighlight}
+          disabled={clipping}
+          className="rounded-lg border border-edge-coral/50 bg-edge-coral/15 px-6 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:border-edge-coral hover:bg-edge-coral/25 disabled:opacity-50"
+          title="Render a vertical clip ready for TikTok/Insta"
+        >
+          {clipping
+            ? "Recording…"
+            : clipDone === "shared"
+              ? "Shared ✓"
+              : clipDone === "downloaded"
+                ? "Saved ✓"
+                : "Save Clip 🎥"}
+        </button>
+        <button
           onClick={share}
           disabled={sharing}
           className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30 disabled:opacity-50"
@@ -2176,7 +2201,7 @@ function Result({
               ? "Shared ✓"
               : shareDone === "downloaded"
                 ? "Saved ✓"
-                : "Share Result"}
+                : "Share Card"}
         </button>
         <button
           onClick={copyReplayLink}
@@ -2221,6 +2246,141 @@ function Result({
 function photoOnly(url: string | null | undefined): string | null {
   if (!url) return null;
   return /^data:image\/(jpeg|png|webp)/.test(url) ? url : null;
+}
+
+/**
+ * Mobile-first toolbar containing the mic toggle, emoji reactions, and
+ * collapsible chat. On phones it sticks visually compact; on desktop
+ * the chat expands inline. The reactions and mic use 44px+ tap targets
+ * (Apple HIG) so they're comfortable to hit on phones.
+ */
+function MobileToolbar({
+  micOn,
+  onMicToggle,
+  onReact,
+  reactionEmojis,
+  chatLog,
+  chatInput,
+  setChatInput,
+  onSendChat
+}: {
+  micOn: boolean;
+  onMicToggle: () => void;
+  onReact: (emoji: string) => void;
+  reactionEmojis?: string[];
+  chatLog: { id: number; from: "me" | "opp"; text: string }[];
+  chatInput: string;
+  setChatInput: (v: string) => void;
+  onSendChat: () => void;
+}) {
+  const [chatOpen, setChatOpen] = useState(false);
+  const unread = chatLog.filter((m) => m.from === "opp").length;
+
+  return (
+    <>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={onMicToggle}
+          className={
+            "h-11 w-11 rounded-full border text-xl transition active:scale-95 " +
+            (micOn
+              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
+              : "border-white/10 bg-white/[0.03] text-white/50")
+          }
+          aria-label={micOn ? "Mic on" : "Mic off"}
+          title={micOn ? "Mic on — opponent hears you" : "Mic off — tap to talk"}
+        >
+          {micOn ? "🎙️" : "🔇"}
+        </button>
+        {(reactionEmojis || DEFAULT_REACTIONS).map((e) => (
+          <button
+            key={e}
+            onClick={() => onReact(e)}
+            className="h-11 w-11 rounded-full border border-white/10 bg-white/[0.03] text-xl transition hover:border-edge-cyan/50 hover:bg-edge-cyan/10 active:scale-95 sm:h-10 sm:w-10"
+            aria-label={`React with ${e}`}
+          >
+            {e}
+          </button>
+        ))}
+        <button
+          onClick={() => setChatOpen((v) => !v)}
+          className={
+            "relative h-11 rounded-full border px-4 text-[11px] font-semibold uppercase tracking-[0.22em] transition sm:h-10 " +
+            (chatOpen
+              ? "border-edge-cyan/60 bg-edge-cyan/15 text-edge-cyan"
+              : "border-white/10 bg-white/[0.03] text-white/65 hover:border-edge-cyan/30")
+          }
+          aria-expanded={chatOpen}
+        >
+          Chat
+          {!chatOpen && unread > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-edge-coral text-[9px] font-bold text-black">
+              {Math.min(9, unread)}
+            </span>
+          )}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {chatOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="mx-auto mt-3 w-full max-w-md">
+              <div className="glass max-h-40 overflow-y-auto rounded-lg p-2 text-xs">
+                {chatLog.length === 0 ? (
+                  <p className="text-center text-[10px] uppercase tracking-[0.22em] text-white/30">
+                    Match chat — say hi
+                  </p>
+                ) : (
+                  chatLog.map((m) => (
+                    <div
+                      key={m.id}
+                      className={
+                        "px-2 py-1 " +
+                        (m.from === "me" ? "text-emerald-200" : "text-white/80")
+                      }
+                    >
+                      <span className="mr-2 text-[9px] uppercase tracking-[0.22em] text-white/40">
+                        {m.from === "me" ? "you" : "opp"}
+                      </span>
+                      {m.text}
+                    </div>
+                  ))
+                )}
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onSendChat();
+                }}
+                className="mt-2 flex gap-2"
+              >
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value.slice(0, 140))}
+                  placeholder="Send a message…"
+                  maxLength={140}
+                  className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-edge-cyan"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim()}
+                  className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/20 disabled:opacity-40"
+                >
+                  Send
+                </button>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
 }
 
 // ─── Camera helper (mirror of FaceScanner's chain) ────────────────────
