@@ -115,27 +115,36 @@ const FACE_MESH_LINKS_LIVE: [number, number][] = [
 ];
 
 /**
- * AR overlay for the live match — green wireframe mesh, bright green
- * tracking dots with glow. Coords are mirrored manually (W - x) since
- * the visible video is CSS-mirrored but the canvas isn't.
+ * AR overlay for the live match — wireframe mesh + bright tracking dots
+ * with optional label-anchored metric callouts (Symmetry / Tilt /
+ * Jawline / Cheekbones / Golden ratio) like the lab. Coords are
+ * mirrored (W - x) since the visible video is CSS-mirrored but the
+ * canvas isn't.
  */
 function drawLiveOverlay(
   ctx: CanvasRenderingContext2D,
   points: Pt[],
-  _box: { x: number; y: number; width: number; height: number },
+  box: { x: number; y: number; width: number; height: number },
   W: number,
-  color: string = "#4ade80"
+  H: number,
+  color: string = "#4ade80",
+  metrics?: import("@/lib/types").EdgeScoreBreakdown | null
 ) {
   const mx = (p: Pt) => ({ x: W - p.x, y: p.y });
-  // Build rgba forms from the supplied hex
   const rgba = (a: number) => hexToRgba(color, a);
 
-  // Mesh contours
+  // Scale all visual sizes to canvas resolution so the overlay reads
+  // crisp on every camera resolution. We baseline at 640px wide.
+  const scale = Math.max(0.7, Math.min(2.5, W / 640));
+
+  // ── Mesh contours ───────────────────────────────────────────────
   ctx.save();
-  ctx.strokeStyle = rgba(0.55);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = rgba(0.7);
   ctx.shadowColor = rgba(0.55);
-  ctx.shadowBlur = 4;
-  ctx.lineWidth = 1.1;
+  ctx.shadowBlur = 6 * scale;
+  ctx.lineWidth = 1.6 * scale;
   for (const [start, end, closed] of FACE_CONTOURS_LIVE) {
     ctx.beginPath();
     const first = mx(points[start]);
@@ -147,9 +156,10 @@ function drawLiveOverlay(
     if (closed) ctx.closePath();
     ctx.stroke();
   }
-  // Cross links — fainter
-  ctx.strokeStyle = rgba(0.28);
-  ctx.lineWidth = 0.9;
+  // Cross-links — fainter
+  ctx.strokeStyle = rgba(0.32);
+  ctx.lineWidth = 1.1 * scale;
+  ctx.shadowBlur = 0;
   for (const [a, b] of FACE_MESH_LINKS_LIVE) {
     const pa = mx(points[a]);
     const pb = mx(points[b]);
@@ -160,18 +170,194 @@ function drawLiveOverlay(
   }
   ctx.restore();
 
-  // Tracked landmarks: chosen color with glow.
+  // ── Tracked landmark dots ──────────────────────────────────────
+  // Two-layer dots: bright inner core + soft outer halo. Reads sharper
+  // against bright-skin video than a single-layer flat circle.
   ctx.save();
-  ctx.fillStyle = color;
   ctx.shadowColor = color;
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = 10 * scale;
+  ctx.fillStyle = color;
   for (const p of points) {
     const { x, y } = mx(p);
     ctx.beginPath();
-    ctx.arc(x, y, 2.8, 0, Math.PI * 2);
+    ctx.arc(x, y, 3.4 * scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  for (const p of points) {
+    const { x, y } = mx(p);
+    ctx.beginPath();
+    ctx.arc(x, y, 1.3 * scale, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
+
+  // ── Label anchors (only when we have live metrics) ─────────────
+  if (!metrics) return;
+
+  const mb = {
+    x: W - box.x - box.width,
+    y: box.y,
+    w: box.width,
+    h: box.height
+  };
+
+  // Anchor positions on key landmarks
+  const aSym = mx(points[27]); // top of nose
+  const aTilt = mx(points[45]); // left outer eye
+  const aJaw = mx(points[8]); // chin
+  const aCheek = mx(points[2]); // right cheek
+  const aPhi = mx({
+    x: (points[19].x + points[24].x) / 2,
+    y: (points[19].y + points[24].y) / 2
+  });
+
+  const padX = 60 * scale;
+  type Lbl = { anchor: Pt; pos: Pt; title: string; value: string };
+  const labels: Lbl[] = [
+    {
+      anchor: aSym,
+      pos: { x: mb.x + mb.w / 2, y: Math.max(24 * scale, mb.y - 24 * scale) },
+      title: "SYM",
+      value: pct(metrics.symmetry)
+    },
+    {
+      anchor: aTilt,
+      pos: {
+        x: Math.min(W - 50 * scale, mb.x + mb.w + padX),
+        y: mb.y + mb.h * 0.18
+      },
+      title: "TILT",
+      value: deg(metrics.canthalTilt)
+    },
+    {
+      anchor: aPhi,
+      pos: {
+        x: Math.min(W - 50 * scale, mb.x + mb.w + padX),
+        y: mb.y + mb.h * 0.55
+      },
+      title: "PHI",
+      value: pct(metrics.goldenRatio)
+    },
+    {
+      anchor: aCheek,
+      pos: { x: Math.max(50 * scale, mb.x - padX), y: mb.y + mb.h * 0.45 },
+      title: "CHEEK",
+      value: pct(metrics.cheekboneProm)
+    },
+    {
+      anchor: aJaw,
+      pos: { x: Math.max(50 * scale, mb.x - padX), y: mb.y + mb.h * 0.85 },
+      title: "JAW",
+      value: pct(metrics.jawlineDefinition)
+    }
+  ];
+
+  for (const l of labels) {
+    drawAnchorLabel(ctx, l.anchor, l.pos, l.title, l.value, color, scale, W, H);
+  }
+}
+
+function drawAnchorLabel(
+  ctx: CanvasRenderingContext2D,
+  anchor: Pt,
+  pos: Pt,
+  title: string,
+  value: string,
+  color: string,
+  scale: number,
+  W: number,
+  H: number
+) {
+  // Clamp position to canvas
+  const x = Math.max(40 * scale, Math.min(W - 40 * scale, pos.x));
+  const y = Math.max(20 * scale, Math.min(H - 20 * scale, pos.y));
+
+  // Connector line
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.45;
+  ctx.lineWidth = 1.1 * scale;
+  ctx.beginPath();
+  ctx.moveTo(anchor.x, anchor.y);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  ctx.restore();
+
+  // Anchor dot
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10 * scale;
+  ctx.beginPath();
+  ctx.arc(anchor.x, anchor.y, 4 * scale, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Label box
+  const titleFont = `700 ${Math.round(10 * scale)}px ui-monospace, "JetBrains Mono", monospace`;
+  const valueFont = `800 ${Math.round(16 * scale)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+  ctx.font = titleFont;
+  const tw = ctx.measureText(title).width;
+  ctx.font = valueFont;
+  const vw = ctx.measureText(value).width;
+  const w = Math.max(tw, vw) + 18 * scale;
+  const h = 36 * scale;
+  const bx = x - w / 2;
+  const by = y - h / 2;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 5, 18, 0.85)";
+  roundRectPath2(ctx, bx, by, w, h, 6 * scale);
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.1 * scale;
+  ctx.stroke();
+  ctx.restore();
+
+  // Title text
+  ctx.font = titleFont;
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, x, y - 8 * scale);
+
+  // Value text
+  ctx.font = valueFont;
+  ctx.fillStyle = color;
+  ctx.fillText(value, x, y + 7 * scale);
+}
+
+function pct(v: number): string {
+  return `${Math.round(v * 100)}%`;
+}
+
+function deg(t: number): string {
+  const v = t * 12; // canthalTilt is normalized -1..1, raw degrees ≈ ±12°
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}°`;
+}
+
+function roundRectPath2(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 function generateCode(): string {
@@ -373,6 +559,9 @@ export function LiveMatch({
     height: number;
   } | null>(null);
   const lastDrawnAtRef = useRef(0);
+  // Last metrics object alongside the cached landmarks so the
+  // anchor-label redraw on miss can stay populated for ~250ms too.
+  const lastDrawnMetricsRef = useRef<EdgeScoreBreakdown | null>(null);
   // Guard so finalizeMatch only commits once per match (the timeout
   // and the inbound "result" message can both fire it).
   const matchFinalizedRef = useRef(false);
@@ -1166,7 +1355,9 @@ export function LiveMatch({
             lastDrawnLandmarksRef.current,
             lastDrawnBoxRef.current!,
             overlay.width,
-            arHex
+            overlay.height,
+            arHex,
+            lastDrawnMetricsRef.current
           );
           drawArFilter(
             ctx,
@@ -1269,7 +1460,15 @@ export function LiveMatch({
 
           if (overlay && ctx) {
             const arHex = AR_COLOR_HEX[user.arColor] || "#4ade80";
-            drawLiveOverlay(ctx, points, det.detection.box, overlay.width, arHex);
+            drawLiveOverlay(
+              ctx,
+              points,
+              det.detection.box,
+              overlay.width,
+              overlay.height,
+              arHex,
+              liveScoreObj
+            );
             // Cosmetic AR filter on top (crown / mustache / shades / etc).
             drawArFilter(ctx, user.arFilter || "none", points, overlay.width, true);
             // Cache for the gap-filling redraw on the next missed frame.
@@ -1280,6 +1479,7 @@ export function LiveMatch({
               width: det.detection.box.width,
               height: det.detection.box.height
             };
+            lastDrawnMetricsRef.current = liveScoreObj;
             lastDrawnAtRef.current = performance.now();
           }
         }
@@ -2043,12 +2243,15 @@ function Arena({
             rankColor={myRank.color}
             rankLabel={myRank.label}
             rankEmoji={myRank.emoji}
+            elo={user.elo}
             score={phase === "scanning" || phase === "between" ? liveMine : null}
             showScore={phase === "scanning" || phase === "between"}
             isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
             reactions={reactions.filter((r) => r.from === "me")}
             blur={privacyBlur}
             videoAspect={localVideoAspect}
+            sideLabel="Your scan"
+            active={phase === "scanning"}
           />
           <BoostFlash trigger={boostFlashId || 0} />
         </div>
@@ -2068,11 +2271,14 @@ function Arena({
           rankColor={oppRank?.color || "#9ca3af"}
           rankLabel={oppRank?.label || ""}
           rankEmoji={oppRank?.emoji || ""}
+          elo={opponent?.elo}
           score={phase === "scanning" || phase === "between" ? liveOpp : null}
           showScore={phase === "scanning" || phase === "between"}
           isWinner={phase === "between" && lastRound ? lastRound.opp > lastRound.me : null}
           reactions={reactions.filter((r) => r.from === "opp")}
           videoAspect={remoteVideoAspect}
+          sideLabel="Enemy scan"
+          active={phase === "scanning"}
         />
       </div>
 
@@ -2193,32 +2399,43 @@ function PlayerTile(props: {
   rankColor: string;
   rankLabel: string;
   rankEmoji: string;
+  elo?: number;
   score: number | null;
   showScore: boolean;
   isWinner: boolean | null;
   reactions?: ReactionPing[];
   blur?: boolean;
-  /** Source video's natural aspect ratio (e.g. "16 / 9") so the
-   *  visible tile and AR overlay stay aligned across cameras. */
+  /** Source video's natural aspect ratio. */
   videoAspect?: string;
-  /** Whether to mute this tile's audio. The local tile MUST be muted
-   *  (otherwise we hear our own echo); the remote tile MUST NOT be
-   *  muted (otherwise the opponent's mic plays into a muted element
-   *  and we never hear them). Defaults to `mirror` so the current
-   *  call-sites — local=mirror+muted, remote=neither — work without
-   *  explicit prop. */
+  /** Mute audio. Defaults to `mirror` (local=true / remote=false). */
   mutedAudio?: boolean;
+  /** "Your scan" / "Enemy scan" label shown in the identity pill. */
+  sideLabel?: string;
+  /** Active = currently scanning; activates the cyan glow border. */
+  active?: boolean;
 }) {
   const muted = props.mutedAudio ?? !!props.mirror;
-  const ringColor =
+  const ringClass =
     props.isWinner === true
       ? "border-emerald-400/70"
       : props.isWinner === false
         ? "border-rose-400/50"
-        : "border-white/10";
+        : props.active
+          ? "border-edge-cyan/55"
+          : "border-white/10";
+
+  // Use the supplied accent (rank color) for corner brackets so each
+  // tile gets a subtle tier-color accent.
+  const corner = props.rankColor;
+
   return (
     <div
-      className={`glass relative overflow-hidden rounded-2xl border-2 transition ${ringColor}`}
+      className={`glass relative overflow-hidden rounded-2xl border-2 transition ${ringClass}`}
+      style={
+        props.active
+          ? { boxShadow: `0 0 60px -10px ${props.rankColor}55, inset 0 0 40px ${props.rankColor}10` }
+          : undefined
+      }
     >
       <div
         className="relative w-full bg-black"
@@ -2245,7 +2462,60 @@ function PlayerTile(props: {
             className="pointer-events-none absolute inset-0 h-full w-full"
           />
         )}
-        {/* Floating emoji reactions — burst up from the bottom of the tile */}
+
+        {/* Corner brackets — L-shapes accenting each tile corner */}
+        <CornerBrackets color={corner} />
+
+        {/* Floating overall-score panel (top-left) */}
+        {props.showScore && props.score !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="pointer-events-none absolute left-3 top-3 z-20 rounded-xl border border-white/10 bg-black/70 px-3 py-2 backdrop-blur"
+            style={{ minWidth: 110 }}
+          >
+            <p className="text-[8px] uppercase tracking-[0.32em] text-white/45">
+              Overall score
+            </p>
+            <p className="stat-mono text-2xl font-bold leading-none text-white">
+              {props.score}
+            </p>
+            <p
+              className="mt-1 text-[9px] font-semibold uppercase tracking-[0.22em]"
+              style={{ color: props.rankColor }}
+            >
+              {props.rankEmoji} {props.rankLabel}
+            </p>
+          </motion.div>
+        )}
+
+        {/* Identity pill (top-right) — sideLabel + name + ELO */}
+        <div className="pointer-events-none absolute right-3 top-3 z-20 max-w-[55%]">
+          <p className="text-right text-[8px] uppercase tracking-[0.32em] text-white/45">
+            {props.sideLabel || (props.mirror ? "Your scan" : "Enemy scan")}
+          </p>
+          <div className="mt-1 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/70 px-2.5 py-1 backdrop-blur">
+            <span className="truncate text-[11px] font-bold uppercase tracking-[0.16em] text-white">
+              {props.name}
+              <OwnerBadge name={props.name} size="xs" />
+            </span>
+          </div>
+          {typeof props.elo === "number" && (
+            <div
+              className="mt-1 inline-flex items-center gap-2 rounded-lg border bg-black/70 px-2.5 py-0.5 text-[10px] font-bold tracking-[0.18em] backdrop-blur"
+              style={{
+                borderColor: props.rankColor + "55",
+                color: props.rankColor
+              }}
+            >
+              {props.rankEmoji} {props.rankLabel}
+              <span className="text-white/30">|</span>
+              <span className="stat-mono">{props.elo} ELO</span>
+            </div>
+          )}
+        </div>
+
+        {/* Reactions — burst from bottom-center */}
         <AnimatePresence>
           {(props.reactions || []).map((r) => (
             <motion.div
@@ -2262,26 +2532,38 @@ function PlayerTile(props: {
           ))}
         </AnimatePresence>
       </div>
-      <div className="border-t border-white/[0.04] bg-black/50 px-2 py-2 text-center">
-        <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-white">
-          {props.name}
-          <OwnerBadge name={props.name} size="xs" />
-        </p>
-        <p className="text-[9px] uppercase tracking-[0.32em]" style={{ color: props.rankColor }}>
-          {props.rankEmoji} {props.rankLabel}
-        </p>
-      </div>
-      {props.showScore && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "spring", stiffness: 220, damping: 18 }}
-          className="absolute right-3 top-3"
-        >
-          <ScoreGauge value={props.score} accent={props.rankColor} />
-        </motion.div>
-      )}
     </div>
+  );
+}
+
+/**
+ * L-shaped corner brackets accenting each corner of a player tile.
+ * Pure CSS, no SVG — uses ::after-style box-shadow trickery via four
+ * absolute-positioned divs.
+ */
+function CornerBrackets({ color }: { color: string }) {
+  const sz = 18;
+  const w = 2;
+  const o = 8;
+  const c = color || "#ffffff";
+  const rgb = c.replace("#", "");
+  // Common style for each corner: two thin colored bars meeting in an L.
+  const base: React.CSSProperties = { position: "absolute", zIndex: 30, pointerEvents: "none" };
+  return (
+    <>
+      {/* TL */}
+      <div style={{ ...base, left: o, top: o, width: sz, height: w, background: `#${rgb}` }} />
+      <div style={{ ...base, left: o, top: o, width: w, height: sz, background: `#${rgb}` }} />
+      {/* TR */}
+      <div style={{ ...base, right: o, top: o, width: sz, height: w, background: `#${rgb}` }} />
+      <div style={{ ...base, right: o, top: o, width: w, height: sz, background: `#${rgb}` }} />
+      {/* BL */}
+      <div style={{ ...base, left: o, bottom: o, width: sz, height: w, background: `#${rgb}` }} />
+      <div style={{ ...base, left: o, bottom: o, width: w, height: sz, background: `#${rgb}` }} />
+      {/* BR */}
+      <div style={{ ...base, right: o, bottom: o, width: sz, height: w, background: `#${rgb}` }} />
+      <div style={{ ...base, right: o, bottom: o, width: w, height: sz, background: `#${rgb}` }} />
+    </>
   );
 }
 
