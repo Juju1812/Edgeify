@@ -10,8 +10,13 @@ export function getStripe(): Stripe | null {
     return null;
   }
   _stripe = new Stripe(key, {
-    // Pin a recent stable version so behaviour doesn't change under us.
-    apiVersion: "2026-04-22.dahlia"
+    // Use the account's pinned dashboard version rather than a hard-
+    // coded one — having SDK type defaults that lead the account's
+    // version was suspected of triggering StripeConnectionError on the
+    // first call from Vercel iad1 → api.stripe.com.
+    // apiVersion intentionally omitted.
+    maxNetworkRetries: 3,
+    timeout: 30000
   });
   return _stripe;
 }
