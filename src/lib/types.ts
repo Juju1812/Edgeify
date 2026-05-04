@@ -135,6 +135,14 @@ export type UserState = {
   accentColor: string; // hex, e.g. "#22e9ff"
   bannerGradient: string; // CSS linear-gradient string
 
+  /** Edgify Pro — paid subscription. proUntil is the unix-ms epoch the
+   *  subscription is paid through (set by the Stripe webhook). The UI
+   *  treats `pro = proUntil > now` as the source of truth. */
+  proUntil: number | null;
+  /** Stripe customer ID — set on first checkout, kept on the user
+   *  record so portal sessions and renewal events resolve back. */
+  stripeCustomerId: string | null;
+
   // ─── Lifetime stats (persists across season rollovers) ─────
   lifetime: LifetimeStats;
 
@@ -188,6 +196,8 @@ export const DEFAULT_USER: UserState = {
   largerText: false,
   accentColor: "#22e9ff",
   bannerGradient: "linear-gradient(135deg, #22e9ff20, #ff5d8f15)",
+  proUntil: null,
+  stripeCustomerId: null,
   lifetime: {
     matchesPlayed: 0,
     totalXp: 0,

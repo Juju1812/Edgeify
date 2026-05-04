@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { EdgeMark } from "./icons";
 import { OwnerBadge } from "./OwnerBadge";
+import { ProBadge } from "./ProBadge";
 import { unreadCount } from "@/lib/inbox";
+import { isPro } from "@/lib/pro";
 
 const CURRENT_VER = "0.4.0";
 
@@ -103,6 +105,7 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               <span className="font-semibold uppercase tracking-[0.18em] text-white">
                 {user.username}
                 <OwnerBadge name={user.username} size="xs" />
+                <ProBadge active={isPro(user)} size="xs" />
               </span>
               {status === "auth-no-scan" && (
                 <span className="ml-2 text-edge-cyan">· No scan yet</span>

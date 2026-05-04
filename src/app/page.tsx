@@ -185,13 +185,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ───── EXTRA NAV (row 3: account) ───── */}
+      {/* ───── EXTRA NAV (row 3: account + Pro) ───── */}
       <section className="mx-auto mt-3 max-w-[1400px] px-6">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <NavChip href="/friends" label="Friends" hint="Add players, DM" />
           <NavChip href="/challenges" label="Challenges" hint="Incoming" accent="coral" />
           <NavChip href="/career" label="Career" hint="Lifetime + coach" />
           <NavChip href="/achievements" label="Unlocks" hint="Achievements" />
+          <NavChip href="/pricing" label="Edgify Pro" hint="$4.99/mo · unlock all" accent="coral" />
           <NavChip href="/settings" label="Settings" hint="AR, mic, privacy" />
         </div>
       </section>

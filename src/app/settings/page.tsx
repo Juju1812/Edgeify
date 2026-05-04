@@ -9,6 +9,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { setSoundVolume } from "@/lib/audio";
 import type { ArColorId } from "@/lib/types";
 import { AR_FILTERS } from "@/lib/ar-filters";
+import { FREE_AR_FILTERS, isPro } from "@/lib/pro";
 import { VoiceNoteRecorder } from "@/components/VoiceNoteRecorder";
 import { EmoteLoadoutPicker } from "@/components/EmoteLoadoutPicker";
 
@@ -124,24 +125,46 @@ export default function SettingsPage() {
 
         <Field label="AR Filter">
           <div className="flex flex-wrap gap-2">
-            {AR_FILTERS.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => update({ arFilter: f.id })}
-                className={
-                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] transition " +
-                  ((user.arFilter || "none") === f.id
-                    ? "border-edge-cyan/60 bg-edge-cyan/10 text-edge-cyan"
-                    : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/20")
-                }
-              >
-                <span className="text-base">{f.emoji}</span>
-                {f.label}
-              </button>
-            ))}
+            {AR_FILTERS.map((f) => {
+              const free = (FREE_AR_FILTERS as readonly string[]).includes(f.id);
+              const locked = !free && !isPro(user);
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    if (locked) {
+                      toast("Pro filter — upgrade to unlock.", { kind: "warn" });
+                      return;
+                    }
+                    update({ arFilter: f.id });
+                  }}
+                  className={
+                    "relative flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] transition " +
+                    (locked
+                      ? "border-white/[0.06] bg-white/[0.01] text-white/35"
+                      : (user.arFilter || "none") === f.id
+                        ? "border-edge-cyan/60 bg-edge-cyan/10 text-edge-cyan"
+                        : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/20")
+                  }
+                >
+                  <span className="text-base">{f.emoji}</span>
+                  {f.label}
+                  {locked && (
+                    <span className="ml-1 rounded-full bg-edge-coral/30 px-1 py-0.5 text-[7px] font-bold tracking-[0.18em] text-edge-coral">
+                      PRO
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/30">
-            Cosmetic — drawn over your face during matches.
+            Cosmetic — drawn over your face during matches.{" "}
+            {!isPro(user) && (
+              <Link href="/pricing" className="text-edge-coral hover:underline">
+                Unlock all
+              </Link>
+            )}
           </p>
         </Field>
       </Section>

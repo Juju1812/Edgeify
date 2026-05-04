@@ -1,9 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { getRedis, profileKey, sessionKey } from "@/lib/auth-server";
+import { FREE_DEEP_ANALYSES_PER_MONTH } from "@/lib/pro";
 
 // Anthropic SDK uses Node APIs (e.g. stream); use the Node runtime.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const usageKey = (username: string, monthYM: string) =>
+  `analysis:usage:v1:${username.toLowerCase()}:${monthYM}`;
+
+function currentMonthYM(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
 /**
  * Canonical analysis prompt — verbatim, do NOT paraphrase.
@@ -117,6 +127,51 @@ export async function POST(req: Request) {
     );
   }
 
+  // ── Quota gate (Free = 3/month, Pro = unlimited) ────────────────
+  // Authed users get tracked usage; guests / unauthed get the free
+  // tier limit pinned to a single anonymous bucket per month.
+  const redis = getRedis();
+  let username: string | null = null;
+  let isProUser = false;
+  if (redis) {
+    const token = (req.headers.get("authorization") || "")
+      .replace(/^Bearer\s+/i, "")
+      .trim();
+    if (token) {
+      const sessRaw = await redis.get<string | { username: string }>(
+        sessionKey(token)
+      );
+      if (sessRaw) {
+        const sess = typeof sessRaw === "string" ? JSON.parse(sessRaw) : sessRaw;
+        username = String(sess.username);
+        const profileRaw = await redis.get<string | Record<string, unknown>>(
+          profileKey(username)
+        );
+        if (profileRaw) {
+          const profile =
+            typeof profileRaw === "string" ? JSON.parse(profileRaw) : profileRaw;
+          const proUntil = Number(profile.proUntil) || 0;
+          isProUser = proUntil > Date.now();
+        }
+      }
+    }
+    if (!isProUser && username) {
+      const month = currentMonthYM();
+      const usedRaw = await redis.get<number | string>(usageKey(username, month));
+      const used = Number(usedRaw) || 0;
+      if (used >= FREE_DEEP_ANALYSES_PER_MONTH) {
+        return NextResponse.json(
+          {
+            error: "quota_exceeded",
+            message: `Free tier is ${FREE_DEEP_ANALYSES_PER_MONTH} deep analyses per month. Upgrade to Edgify Pro for unlimited.`,
+            upgradeUrl: "/pricing"
+          },
+          { status: 402 }
+        );
+      }
+    }
+  }
+
   let body: Body = {};
   try {
     body = await req.json();
@@ -198,6 +253,15 @@ export async function POST(req: Request) {
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n\n");
+
+    // Charge a usage tick for free-tier users (Pro is unlimited).
+    if (redis && username && !isProUser) {
+      const month = currentMonthYM();
+      const k = usageKey(username, month);
+      // 35 days TTL covers the rest of this month + a buffer.
+      await redis.incr(k);
+      await redis.expire(k, 35 * 24 * 60 * 60);
+    }
 
     return NextResponse.json({
       analysis: text,

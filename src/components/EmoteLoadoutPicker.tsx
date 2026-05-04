@@ -1,12 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useUser } from "@/lib/user-context";
+import { useToast } from "@/lib/toast-context";
 import {
   loadLoadouts,
   findLoadout,
   type Loadout
 } from "@/lib/emote-loadouts";
+import { FREE_LOADOUTS, isPro } from "@/lib/pro";
 
 /**
  * Quick loadout swapper. Visible in /settings; lets the user choose
@@ -14,10 +17,17 @@ import {
  */
 export function EmoteLoadoutPicker() {
   const { user, update } = useUser();
+  const { toast } = useToast();
   const [loadouts] = useState<Loadout[]>(loadLoadouts());
   const active = matchActive(user.customEmojis, loadouts);
+  const pro = isPro(user);
 
   function activate(id: string) {
+    const isFree = (FREE_LOADOUTS as readonly string[]).includes(id);
+    if (!isFree && !pro) {
+      toast("Pro loadout — upgrade to unlock.", { kind: "warn" });
+      return;
+    }
     const lo = findLoadout(id);
     if (!lo) return;
     update({ customEmojis: lo.emojis });
@@ -32,15 +42,19 @@ export function EmoteLoadoutPicker() {
       <div className="grid gap-2 md:grid-cols-2">
         {loadouts.map((l) => {
           const isActive = active === l.id;
+          const isFree = (FREE_LOADOUTS as readonly string[]).includes(l.id);
+          const locked = !isFree && !pro;
           return (
             <button
               key={l.id}
               onClick={() => activate(l.id)}
               className={
                 "rounded-xl border p-3 text-left transition " +
-                (isActive
-                  ? "border-edge-cyan/60 bg-edge-cyan/[0.06]"
-                  : "border-white/[0.06] bg-white/[0.015] hover:border-white/20")
+                (locked
+                  ? "border-white/[0.04] bg-white/[0.01] opacity-60"
+                  : isActive
+                    ? "border-edge-cyan/60 bg-edge-cyan/[0.06]"
+                    : "border-white/[0.06] bg-white/[0.015] hover:border-white/20")
               }
             >
               <div className="flex items-center justify-between">
@@ -55,6 +69,11 @@ export function EmoteLoadoutPicker() {
                 {isActive && (
                   <span className="text-[9px] uppercase tracking-[0.32em] text-edge-cyan">
                     ACTIVE
+                  </span>
+                )}
+                {locked && (
+                  <span className="rounded-full bg-edge-coral/25 px-1.5 py-0.5 text-[8px] font-bold tracking-[0.22em] text-edge-coral">
+                    PRO
                   </span>
                 )}
               </div>
@@ -72,6 +91,14 @@ export function EmoteLoadoutPicker() {
           );
         })}
       </div>
+      {!pro && (
+        <p className="text-[10px] uppercase tracking-[0.22em] text-white/30">
+          <Link href="/pricing" className="text-edge-coral hover:underline">
+            Unlock all loadouts
+          </Link>{" "}
+          with Edgify Pro
+        </p>
+      )}
     </div>
   );
 }
