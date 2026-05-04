@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Footer } from "@/components/Footer";
 import { AskCoachButton } from "@/components/AskCoachButton";
 import { EdgeScoreRadar } from "@/components/EdgeScoreRadar";
+import { CareerTimeline } from "@/components/CareerTimeline";
 import { useUser } from "@/lib/user-context";
 
 export default function CareerPage() {
@@ -57,6 +58,10 @@ export default function CareerPage() {
       <div className="mt-10 grid gap-3 lg:grid-cols-2">
         {user.edgeScore && <EdgeScoreRadar score={user.edgeScore} />}
         <AskCoachButton />
+      </div>
+
+      <div className="mt-10">
+        <CareerTimeline user={user} />
       </div>
 
       <Footer />

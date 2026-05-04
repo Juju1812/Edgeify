@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { OwnerBadge } from "@/components/OwnerBadge";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
+import { AchievementsShowcase } from "@/components/AchievementsShowcase";
 import { rankFromElo, RANKS } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
@@ -58,8 +59,21 @@ export default function ProfilePage() {
         ← Back to Lobby
       </Link>
 
-      <div className="mt-6 grid gap-6 md:grid-cols-[260px_1fr]">
-        <div className="glass overflow-hidden rounded-2xl">
+      {/* Profile banner — gradient strip the user picked in /settings */}
+      <div
+        className="mt-6 h-24 rounded-2xl border border-white/[0.05]"
+        style={{
+          background: user.bannerGradient || "linear-gradient(135deg, #22e9ff20, #ff5d8f15)"
+        }}
+      />
+
+      <div className="mt-3 grid gap-6 md:grid-cols-[260px_1fr]">
+        <div
+          className="glass overflow-hidden rounded-2xl"
+          style={{
+            borderColor: (user.accentColor || "#22e9ff") + "30"
+          }}
+        >
           <div className="aspect-square w-full bg-black/40">
             {user.faceDataUrl && !user.hideFromBoard ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -130,6 +144,10 @@ export default function ProfilePage() {
       </div>
 
       <div className="mt-10">
+        <AchievementsShowcase />
+      </div>
+
+      <div className="mt-6">
         <h2 className="label-xs mb-3">
           Achievements ({unlockedAchievements(user).length}/{ACHIEVEMENTS.length})
         </h2>

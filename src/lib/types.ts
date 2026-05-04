@@ -117,6 +117,7 @@ export type UserState = {
   bio: string;                       // 140 char public bio
   tagline: string;                   // short one-line subtitle (60 char)
   pinnedMatchIds: string[];          // up to 3 pinned matches
+  pinnedAchievementIds: string[];    // up to 3 showcase achievements
   arColor: ArColorId;
   arFilter: ArFilterId;
   theme: ThemeId;
@@ -129,6 +130,10 @@ export type UserState = {
   reducedMotion: boolean;
   /** A11y: bump font-size for users who need bigger text. */
   largerText: boolean;
+
+  /** Profile customization v2 — accent color + banner gradient. */
+  accentColor: string; // hex, e.g. "#22e9ff"
+  bannerGradient: string; // CSS linear-gradient string
 
   // ─── Lifetime stats (persists across season rollovers) ─────
   lifetime: LifetimeStats;
@@ -170,6 +175,7 @@ export const DEFAULT_USER: UserState = {
   bio: "",
   tagline: "",
   pinnedMatchIds: [],
+  pinnedAchievementIds: [],
   arColor: "green",
   arFilter: "none",
   theme: "default",
@@ -180,6 +186,8 @@ export const DEFAULT_USER: UserState = {
   pushEnabled: false,
   reducedMotion: false,
   largerText: false,
+  accentColor: "#22e9ff",
+  bannerGradient: "linear-gradient(135deg, #22e9ff20, #ff5d8f15)",
   lifetime: {
     matchesPlayed: 0,
     totalXp: 0,

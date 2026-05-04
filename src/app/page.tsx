@@ -165,12 +165,31 @@ export default function HomePage() {
         <WeeklyRecap />
       </section>
 
-      {/* ───── EXTRA NAV ───── */}
+      {/* ───── EXTRA NAV (row 1: action) ───── */}
       <section className="mx-auto mt-5 max-w-[1400px] px-6">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <NavChip href="/daily" label="Daily Boss" hint="Today's shared opponent" accent="coral" />
+          <NavChip href="/discover" label="Discover" hint="Swipe through players" accent="coral" />
+          <NavChip href="/practice" label="Practice" hint="Solo training breakdown" />
+          <NavChip href="/highlights" label="Highlights" hint="Your best moments" />
+        </div>
+      </section>
+
+      {/* ───── EXTRA NAV (row 2: meta) ───── */}
+      <section className="mx-auto mt-3 max-w-[1400px] px-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <NavChip href="/live" label="Live Feed" hint="Active players now" />
+          <NavChip href="/today" label="The Edgify Times" hint="Today's daily digest" accent="coral" />
+          <NavChip href="/clans" label="Clans" hint="Form a crew" />
+          <NavChip href="/workshop" label="Workshop" hint="Alt scoring formulas" />
+        </div>
+      </section>
+
+      {/* ───── EXTRA NAV (row 3: account) ───── */}
+      <section className="mx-auto mt-3 max-w-[1400px] px-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <NavChip href="/friends" label="Friends" hint="Add players, DM" />
+          <NavChip href="/challenges" label="Challenges" hint="Incoming" accent="coral" />
           <NavChip href="/career" label="Career" hint="Lifetime + coach" />
           <NavChip href="/achievements" label="Unlocks" hint="Achievements" />
           <NavChip href="/settings" label="Settings" hint="AR, mic, privacy" />

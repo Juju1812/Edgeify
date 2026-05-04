@@ -275,6 +275,30 @@ function ArenaPageInner() {
     // Just clear the per-match activation set.
     setBoostRounds(new Set());
 
+    // Resolve any pre-match prediction. If it was within ±10 of the
+    // actual outcome (won=100, lost=0), award +30 XP.
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem("edgify:prediction:current");
+        if (raw) {
+          const p = JSON.parse(raw) as {
+            opponent: string;
+            prediction: number;
+          };
+          if (p.opponent === opponent.username) {
+            const actual = won ? 100 : 0;
+            const off = Math.abs(p.prediction - actual);
+            if (off <= 10) {
+              update((prev) => ({ seasonXp: prev.seasonXp + 30 }));
+            }
+          }
+          window.localStorage.removeItem("edgify:prediction:current");
+        }
+      } catch {
+        /* */
+      }
+    }
+
     setMatchResult({ won, delta, rounds });
     setPhase("result");
   }
@@ -735,10 +759,30 @@ function Searching({
 }
 
 function Versus({ opponent }: { opponent: SeedUser }) {
-  const { user } = useUser();
+  const { user, update } = useUser();
   const myRank = rankFromElo(user.elo);
   const oppRank = rankFromElo(opponent.elo);
   const myProb = Math.round(winProbability(user.elo, opponent.elo) * 100);
+  const [prediction, setPrediction] = useState<number | null>(null);
+  const [predLocked, setPredLocked] = useState(false);
+
+  function lockPrediction() {
+    if (prediction === null) return;
+    setPredLocked(true);
+    // Stash so we can resolve it on result phase
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "edgify:prediction:current",
+        JSON.stringify({
+          opponent: opponent.username,
+          prediction,
+          ts: Date.now()
+        })
+      );
+    }
+  }
+  // Suppress unused warning — update is used elsewhere in arena
+  void update;
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -783,7 +827,7 @@ function Versus({ opponent }: { opponent: SeedUser }) {
         className="mx-auto max-w-md rounded-xl border border-white/[0.06] bg-black/30 p-4"
       >
         <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.32em] text-white/45">
-          <span>Win probability</span>
+          <span>ELO win prob</span>
           <span className="stat-mono text-edge-cyan">{myProb}%</span>
         </div>
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full">
@@ -794,6 +838,52 @@ function Versus({ opponent }: { opponent: SeedUser }) {
           ELO Δ {opponent.elo - user.elo >= 0 ? "+" : ""}
           {opponent.elo - user.elo} · expected matchup
         </p>
+      </motion.div>
+
+      {/* User prediction widget — bonus XP if you're right within 10% */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="mx-auto max-w-md rounded-xl border border-edge-coral/30 bg-edge-coral/[0.04] p-4"
+      >
+        <p className="label-xs text-edge-coral">Your prediction</p>
+        {predLocked ? (
+          <p className="mt-2 text-sm text-white/70">
+            Locked at <span className="stat-mono text-edge-coral">{prediction}%</span>.
+            Get within ±10% of actual outcome for{" "}
+            <span className="text-edge-cyan">+30 XP</span>.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-white/65">
+              How sure are you? Lock in for a bonus XP shot.
+            </p>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={prediction ?? myProb}
+              onChange={(e) => setPrediction(Number(e.target.value))}
+              className="mt-3 w-full accent-edge-coral"
+            />
+            <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.22em] text-white/45">
+              <span>I lose</span>
+              <span className="stat-mono text-edge-coral">
+                {prediction ?? myProb}%
+              </span>
+              <span>I win</span>
+            </div>
+            <button
+              onClick={lockPrediction}
+              disabled={prediction === null}
+              className="mt-3 w-full rounded-lg border border-edge-coral/50 bg-edge-coral/15 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-coral/25 disabled:opacity-40"
+            >
+              Lock in →
+            </button>
+          </>
+        )}
       </motion.div>
     </motion.div>
   );

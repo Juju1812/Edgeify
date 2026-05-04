@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Footer } from "@/components/Footer";
 import { LiveMatch, type LiveMatchAuto } from "@/components/Arena/LiveMatch";
+import { TournamentCommentary } from "@/components/TournamentCommentary";
 import { useUser } from "@/lib/user-context";
 
 type TourneyMatch = { a: number; b: number; winner: number | null };
@@ -239,6 +240,12 @@ function PrivateRoomInner() {
   return (
     <Shell>
       <Bracket tourney={tourney} myIdx={myIdx} />
+
+      {tourney.state !== "lobby" && (
+        <div className="mt-6">
+          <TournamentCommentary code={tourney.code} />
+        </div>
+      )}
 
       {tourney.state === "lobby" && (
         <Lobby

@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { Footer } from "@/components/Footer";
 import { OwnerBadge } from "@/components/OwnerBadge";
 import { ProfileReactions } from "@/components/ProfileReactions";
+import { ChallengeButton } from "@/components/ChallengeButton";
 import { Redis } from "@upstash/redis";
 import { rankFromElo } from "@/lib/rank";
 
@@ -121,8 +122,9 @@ export default async function PublicProfilePage({
         </div>
       </div>
 
-      <div className="mt-10">
+      <div className="mt-10 grid gap-4 md:grid-cols-2">
         <ProfileReactions username={profile.username} actor={null} />
+        <ChallengeButton target={profile.username} />
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-[1fr_auto]">

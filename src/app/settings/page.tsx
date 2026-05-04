@@ -9,6 +9,8 @@ import { COUNTRIES } from "@/lib/countries";
 import { setSoundVolume } from "@/lib/audio";
 import type { ArColorId } from "@/lib/types";
 import { AR_FILTERS } from "@/lib/ar-filters";
+import { VoiceNoteRecorder } from "@/components/VoiceNoteRecorder";
+import { EmoteLoadoutPicker } from "@/components/EmoteLoadoutPicker";
 
 const AR_COLORS: { id: ArColorId; label: string; hex: string }[] = [
   { id: "green", label: "Lime", hex: "#4ade80" },
@@ -197,6 +199,71 @@ export default function SettingsPage() {
           value={user.privacyBlur}
           onChange={(v) => update({ privacyBlur: v })}
         />
+      </Section>
+
+      {/* Voice note */}
+      <Section title="Voice note">
+        <VoiceNoteRecorder />
+      </Section>
+
+      {/* Emote loadouts */}
+      <Section title="Emote loadout">
+        <EmoteLoadoutPicker />
+      </Section>
+
+      {/* Profile customization */}
+      <Section title="Profile">
+        <Field label="Accent color">
+          <div className="flex flex-wrap gap-2">
+            {[
+              "#22e9ff",
+              "#ff5d8f",
+              "#fde047",
+              "#a855f7",
+              "#34d399",
+              "#f97316",
+              "#ec4899",
+              "#94a3b8"
+            ].map((c) => (
+              <button
+                key={c}
+                onClick={() => update({ accentColor: c })}
+                className={
+                  "h-9 w-9 rounded-full border-2 transition " +
+                  (user.accentColor === c
+                    ? "border-white scale-110"
+                    : "border-white/15")
+                }
+                style={{ background: c, boxShadow: `0 0 12px ${c}55` }}
+                title={c}
+              />
+            ))}
+          </div>
+        </Field>
+        <Field label="Banner gradient">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[
+              "linear-gradient(135deg, #22e9ff20, #ff5d8f15)",
+              "linear-gradient(135deg, #fde04720, #f9731620)",
+              "linear-gradient(135deg, #a855f720, #ec489920)",
+              "linear-gradient(135deg, #34d39920, #22e9ff20)",
+              "linear-gradient(135deg, #ff5d8f20, #fde04720)",
+              "linear-gradient(180deg, #04060c, #0b1124)"
+            ].map((g) => (
+              <button
+                key={g}
+                onClick={() => update({ bannerGradient: g })}
+                className={
+                  "h-12 rounded-lg border transition " +
+                  (user.bannerGradient === g
+                    ? "border-edge-cyan/60"
+                    : "border-white/10 hover:border-white/30")
+                }
+                style={{ background: g }}
+              />
+            ))}
+          </div>
+        </Field>
       </Section>
 
       {/* Accessibility */}
