@@ -2489,12 +2489,14 @@ function PlayerTile(props: {
           </motion.div>
         )}
 
-        {/* Identity pill (top-right) — sideLabel + name + ELO */}
-        <div className="pointer-events-none absolute right-3 top-3 z-20 max-w-[55%]">
-          <p className="text-right text-[8px] uppercase tracking-[0.32em] text-white/45">
+        {/* Identity pill (top-right) — sideLabel + name + ELO.
+            flex-col + items-end forces every row to hug the right edge
+            so the whole stack sits in the corner. */}
+        <div className="pointer-events-none absolute right-3 top-3 z-20 flex max-w-[55%] flex-col items-end gap-1">
+          <p className="text-[8px] uppercase tracking-[0.32em] text-white/45">
             {props.sideLabel || (props.mirror ? "Your scan" : "Enemy scan")}
           </p>
-          <div className="mt-1 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/70 px-2.5 py-1 backdrop-blur">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/70 px-2.5 py-1 backdrop-blur">
             <span className="truncate text-[11px] font-bold uppercase tracking-[0.16em] text-white">
               {props.name}
               <OwnerBadge name={props.name} size="xs" />
@@ -2502,7 +2504,7 @@ function PlayerTile(props: {
           </div>
           {typeof props.elo === "number" && (
             <div
-              className="mt-1 inline-flex items-center gap-2 rounded-lg border bg-black/70 px-2.5 py-0.5 text-[10px] font-bold tracking-[0.18em] backdrop-blur"
+              className="inline-flex items-center gap-2 rounded-lg border bg-black/70 px-2.5 py-0.5 text-[10px] font-bold tracking-[0.18em] backdrop-blur"
               style={{
                 borderColor: props.rankColor + "55",
                 color: props.rankColor
