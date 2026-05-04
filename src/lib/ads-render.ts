@@ -9,13 +9,13 @@
  *   - Asymmetric corner glows match the home page background
  */
 
-const CYAN = "#22e9ff";
-const CORAL = "#ff5d8f";
-const INK = "#04060c";
+export const CYAN = "#22e9ff";
+export const CORAL = "#ff5d8f";
+export const INK = "#04060c";
 
 // Render the shared backdrop (radial cyan + coral glows + diagonal grid).
 // Every template starts with this so the brand is visually consistent.
-function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
+export function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
   // Base ink
   const base = ctx.createLinearGradient(0, 0, w, h);
   base.addColorStop(0, "#04060c");
@@ -62,7 +62,7 @@ function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
 }
 
 // Brand wordmark — cyan→coral gradient. Scaled to caller-supplied size.
-function drawBrandWordmark(
+export function drawBrandWordmark(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -92,7 +92,7 @@ function drawBrandWordmark(
 
 // Tagline / URL row — small monospaced caption near the bottom of the
 // frame. Used on every template as a consistent footer.
-function drawFooterURL(
+export function drawFooterURL(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
@@ -109,7 +109,7 @@ function drawFooterURL(
 
 // Hexagonal EdgeMark — geometric brand mark. Drawn solid with the
 // gradient. Used as a small accent in some templates.
-function drawEdgeMark(
+export function drawEdgeMark(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
@@ -578,7 +578,7 @@ function drawBannerTemplate(
   ctx.restore();
 }
 
-function roundRectPath(
+export function roundRectPath(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
