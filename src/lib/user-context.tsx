@@ -52,10 +52,32 @@ function loadFromStorage(): UserState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_USER;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_USER, ...parsed };
+    return reconcileLifetime({ ...DEFAULT_USER, ...parsed });
   } catch {
     return DEFAULT_USER;
   }
+}
+
+/**
+ * One-shot migration: `lifetime.*` fields were added after some users
+ * had already accumulated wins/losses/peak ELO/streaks. When that field
+ * was missing or behind, the career page showed inconsistent stats
+ * (e.g. matchesPlayed=3 but wins+losses=6). This brings each lifetime
+ * counter forward to at least its season-scoped equivalent. Idempotent
+ * — running it again on already-correct data is a no-op.
+ */
+function reconcileLifetime(u: UserState): UserState {
+  const wl = (u.wins || 0) + (u.losses || 0);
+  const lt = u.lifetime || DEFAULT_USER.lifetime;
+  return {
+    ...u,
+    lifetime: {
+      ...lt,
+      matchesPlayed: Math.max(lt.matchesPlayed || 0, wl),
+      longestStreak: Math.max(lt.longestStreak || 0, u.streak || 0),
+      peakEloEver: Math.max(lt.peakEloEver || 0, u.peakElo || 0)
+    }
+  };
 }
 
 function saveToStorage(u: UserState) {
@@ -124,7 +146,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           if (res.ok) {
             const data = await res.json();
             if (data.profile) {
-              const merged = { ...DEFAULT_USER, ...data.profile };
+              const merged = reconcileLifetime({ ...DEFAULT_USER, ...data.profile });
               const withRollover = { ...merged, ...checkSeasonRollover(merged) };
               const withStreak = { ...withRollover, ...tickDailyStreak(withRollover) };
               const withDecay = { ...withStreak, ...applyInactivityDecay(withStreak) };
@@ -307,7 +329,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setAuthedRemote(true);
       // Hydrate from server profile if there is one.
       if (data.profile) {
-        const merged = { ...DEFAULT_USER, ...data.profile };
+        const merged = reconcileLifetime({ ...DEFAULT_USER, ...data.profile });
         setUser(merged);
       } else {
         setUser((prev) => ({

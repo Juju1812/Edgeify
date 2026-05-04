@@ -42,14 +42,14 @@ export default function CareerPage() {
         <BigStat label="Boosts Used" value={lt.totalBoostsUsed} accent="⚡" />
       </div>
 
-      <h2 className="label-xs mt-10 mb-3">Current Season</h2>
+      <h2 className="label-xs mt-10 mb-3">Ranked Standing</h2>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <BigStat label="Wins" value={user.wins} />
         <BigStat label="Losses" value={user.losses} />
         <BigStat label="Win Rate" value={`${wr}%`} />
         <BigStat label="ELO" value={user.elo} />
         <BigStat label="Peak ELO" value={user.peakElo} />
-        <BigStat label="Win Streak" value={user.streak} />
+        <BigStat label="Current Streak" value={user.streak} />
       </div>
 
       <Footer />
