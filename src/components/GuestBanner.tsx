@@ -27,6 +27,19 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
   //     progress" CTA so they can convert their local stats to an account
   //   - "authedRemote": full identity row + sign-out
   const isNamedGuest = ready && !!user.username && !authedRemote;
+  const showGetPro = ready && !isPro(user);
+
+  const GetProPill = (
+    <Link
+      href="/pricing"
+      className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-black shadow-[0_0_12px_rgba(253,224,71,0.25)] transition hover:shadow-[0_0_18px_rgba(253,224,71,0.45)] sm:inline-flex"
+      style={{ background: "linear-gradient(135deg, #fde047, #f97316)" }}
+      title="Edgify Pro · $4.99/mo"
+    >
+      <span>★</span>
+      <span>Get Pro</span>
+    </Link>
+  );
 
   return (
     <div className="relative w-full border-b border-white/[0.05] bg-black/40 backdrop-blur">
@@ -60,12 +73,15 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               </button>
               .
             </p>
-            <button
-              onClick={onSignIn}
-              className="ml-auto rounded-md border border-edge-cyan/40 bg-edge-cyan/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/20 hover:text-white sm:ml-0"
-            >
-              Sign in / Sign up
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              {showGetPro && GetProPill}
+              <button
+                onClick={onSignIn}
+                className="rounded-md border border-edge-cyan/40 bg-edge-cyan/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/20 hover:text-white"
+              >
+                Sign in / Sign up
+              </button>
+            </div>
           </>
         ) : isNamedGuest ? (
           <>
@@ -82,6 +98,7 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               </span>
             </p>
             <div className="ml-auto flex items-center gap-2">
+              {showGetPro && GetProPill}
               <button
                 onClick={onSignIn}
                 className="rounded-md border border-edge-coral/40 bg-edge-coral/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-edge-coral transition hover:border-edge-coral hover:bg-edge-coral/20 hover:text-white"
@@ -117,6 +134,7 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               )}
             </p>
             <div className="ml-auto flex items-center gap-2">
+              {showGetPro && GetProPill}
               <Link
                 href="/inbox"
                 className="relative rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60 transition hover:border-edge-cyan/40 hover:text-edge-cyan"
