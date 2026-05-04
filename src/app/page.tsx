@@ -29,6 +29,11 @@ import { StreakCalendar } from "@/components/StreakCalendar";
 import { StreakLadder } from "@/components/StreakLadder";
 import { RankDecayWidget } from "@/components/RankDecayWidget";
 import { EventBanner } from "@/components/EventBanner";
+import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { DailyQuests } from "@/components/DailyQuests";
+import { DailyLoginSpinner } from "@/components/DailyLoginSpinner";
+import { WeeklyRecap } from "@/components/WeeklyRecap";
+import { SuggestedActions } from "@/components/SuggestedActions";
 import { useUser } from "@/lib/user-context";
 
 export default function HomePage() {
@@ -71,6 +76,11 @@ export default function HomePage() {
         <HeroBadge onSignIn={openSignIn} />
       </section>
 
+      {/* ───── SUGGESTED ACTIONS (signed-in only) ───── */}
+      <section className="mx-auto mt-6 max-w-[1400px] px-6">
+        <SuggestedActions />
+      </section>
+
       {/* ───── LIMITED-TIME EVENT (only when active) ───── */}
       <section className="mx-auto mt-6 max-w-[1400px] px-6">
         <EventBanner />
@@ -81,8 +91,10 @@ export default function HomePage() {
         <FeaturedArenaCard onSignIn={openSignIn} />
       </section>
 
-      {/* ───── PROMO SERIES + RANK DECAY (only when active) ───── */}
+      {/* ───── ONBOARDING + DAILY SPIN + PROMO + DECAY ───── */}
       <section className="mx-auto mt-5 max-w-[1400px] space-y-3 px-6">
+        <OnboardingChecklist />
+        <DailyLoginSpinner />
         <PromoSeriesWidget />
         <RankDecayWidget />
       </section>
@@ -145,6 +157,12 @@ export default function HomePage() {
       </section>
       <section className="mx-auto mt-3 max-w-[1400px] px-6">
         <StreakLadder />
+      </section>
+
+      {/* ───── DAILY QUESTS + WEEKLY RECAP ───── */}
+      <section className="mx-auto mt-3 max-w-[1400px] space-y-3 px-6">
+        <DailyQuests />
+        <WeeklyRecap />
       </section>
 
       {/* ───── EXTRA NAV ───── */}

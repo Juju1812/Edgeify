@@ -115,6 +115,7 @@ export type UserState = {
   email: string | null;
   countryCode: string | null;        // ISO-3166 alpha-2
   bio: string;                       // 140 char public bio
+  tagline: string;                   // short one-line subtitle (60 char)
   pinnedMatchIds: string[];          // up to 3 pinned matches
   arColor: ArColorId;
   arFilter: ArFilterId;
@@ -124,6 +125,10 @@ export type UserState = {
   micDefault: boolean;
   privacyBlur: boolean;              // background blur in live match
   pushEnabled: boolean;
+  /** A11y: collapse animation/transition durations to ~0. */
+  reducedMotion: boolean;
+  /** A11y: bump font-size for users who need bigger text. */
+  largerText: boolean;
 
   // ─── Lifetime stats (persists across season rollovers) ─────
   lifetime: LifetimeStats;
@@ -163,6 +168,7 @@ export const DEFAULT_USER: UserState = {
   email: null,
   countryCode: null,
   bio: "",
+  tagline: "",
   pinnedMatchIds: [],
   arColor: "green",
   arFilter: "none",
@@ -172,6 +178,8 @@ export const DEFAULT_USER: UserState = {
   micDefault: false,
   privacyBlur: false,
   pushEnabled: false,
+  reducedMotion: false,
+  largerText: false,
   lifetime: {
     matchesPlayed: 0,
     totalXp: 0,

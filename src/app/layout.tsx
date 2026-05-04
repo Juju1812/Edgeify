@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { UserProvider } from "@/lib/user-context";
 import { ToastProvider } from "@/lib/toast-context";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { BugReportButton } from "@/components/BugReportButton";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({
           <ToastProvider>
             <div className="relative z-10">{children}</div>
             <KeyboardShortcuts />
+            <BugReportButton />
           </ToastProvider>
         </UserProvider>
       </body>

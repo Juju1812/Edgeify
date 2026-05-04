@@ -10,6 +10,12 @@ import { useToast } from "@/lib/toast-context";
 import { rankFromElo } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { appendDm, getThread, type DmMessage } from "@/lib/dms";
+import {
+  exportFriendsCSV,
+  getExtras,
+  setNick,
+  setNote
+} from "@/lib/friend-extras";
 
 type Friend = {
   username: string;
@@ -95,28 +101,50 @@ export default function FriendsPage() {
         <h1 className="heading-card mt-2 text-3xl">Your Crew</h1>
       </div>
 
+      <FriendSearch onAdd={(u) => mutate("add", u)} busy={busy} />
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (add.trim().length >= 2) mutate("add", add.trim());
           setAdd("");
         }}
-        className="glass mt-6 flex gap-2 rounded-xl p-3"
+        className="glass mt-3 flex gap-2 rounded-xl p-3"
       >
         <input
           value={add}
           onChange={(e) => setAdd(e.target.value.slice(0, 16).replace(/[^A-Za-z0-9_-]/g, ""))}
-          placeholder="Add by callsign…"
-          className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm uppercase tracking-[0.18em] text-white outline-none focus:border-mog-violet"
+          placeholder="Or add by exact callsign…"
+          className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm uppercase tracking-[0.18em] text-white outline-none focus:border-edge-cyan"
         />
         <button
           type="submit"
           disabled={busy || add.trim().length < 2}
-          className="rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30 disabled:opacity-40"
+          className="rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25 disabled:opacity-40"
         >
           Add
         </button>
       </form>
+
+      {friends.length > 0 && (
+        <div className="mt-3 flex justify-end">
+          <button
+            onClick={() => {
+              const csv = exportFriendsCSV(friends.map((f) => f.username));
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `edgify-friends-${Date.now()}.csv`;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}
+            className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/55 transition hover:border-edge-cyan/40 hover:text-edge-cyan"
+          >
+            Export CSV
+          </button>
+        </div>
+      )}
 
       <div className="mt-6">
         {loading ? (
@@ -209,6 +237,101 @@ export default function FriendsPage() {
 
       <Footer />
     </main>
+  );
+}
+
+/**
+ * Live friend search — debounced query against /api/users/search.
+ * Returns top 10 matches with rank info; clicking sends to /api/friends.
+ */
+function FriendSearch({
+  onAdd,
+  busy
+}: {
+  onAdd: (username: string) => void;
+  busy: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<
+    { username: string; elo: number; faceDataUrl: string | null }[]
+  >([]);
+
+  useEffect(() => {
+    if (q.trim().length < 1) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/users/search?q=${encodeURIComponent(q.trim())}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setResults(data.results || []);
+      } catch {
+        /* */
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [q]);
+
+  return (
+    <div className="glass mt-6 rounded-xl p-3">
+      <p className="label-xs mb-2">Search players</p>
+      <input
+        value={q}
+        onChange={(e) =>
+          setQ(e.target.value.slice(0, 24).replace(/[^A-Za-z0-9_-]/g, ""))
+        }
+        placeholder="Search by callsign…"
+        className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none focus:border-edge-cyan"
+      />
+      {results.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {results.map((r) => (
+            <li
+              key={r.username}
+              className="flex items-center justify-between gap-2 rounded-md border border-white/[0.05] bg-white/[0.02] p-2"
+            >
+              <span className="flex items-center gap-2 truncate">
+                {r.faceDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={r.faceDataUrl}
+                    alt=""
+                    className="h-7 w-7 rounded-md border border-white/10 object-cover"
+                  />
+                ) : (
+                  <span className="h-7 w-7 rounded-md border border-white/10 bg-black/40" />
+                )}
+                <span className="truncate text-sm font-semibold uppercase tracking-[0.16em] text-white">
+                  {r.username}
+                </span>
+                <span className="stat-mono text-[10px] uppercase tracking-[0.22em] text-edge-cyan">
+                  {r.elo}
+                </span>
+              </span>
+              <button
+                onClick={() => {
+                  onAdd(r.username);
+                  setQ("");
+                  setResults([]);
+                }}
+                disabled={busy}
+                className="rounded-md border border-edge-cyan/30 bg-edge-cyan/[0.06] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/60 disabled:opacity-40"
+              >
+                Add
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

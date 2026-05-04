@@ -4,7 +4,7 @@ import { getRedis } from "@/lib/auth-server";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const ALLOWED = ["fire", "crown", "skull", "goat", "clown"] as const;
+const ALLOWED = ["fire", "crown", "skull", "goat", "clown", "cheer"] as const;
 type Emoji = (typeof ALLOWED)[number];
 
 const reactionsKey = (u: string) => `reactions:v1:${u.toLowerCase()}`;

@@ -5,6 +5,8 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
 import { OwnerBadge } from "@/components/OwnerBadge";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { rankFromElo, RANKS } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
@@ -15,6 +17,8 @@ export default function ProfilePage() {
   const { user, status, ready, update, deleteAccount } = useUser();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [replay, setReplay] = useState<MatchRecord | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<"all" | "wins" | "losses">("all");
+  const [editingTagline, setEditingTagline] = useState(false);
 
   if (!ready)
     return (
@@ -74,12 +78,36 @@ export default function ProfilePage() {
             <p className="text-base font-semibold uppercase tracking-[0.22em] text-white">
               {user.username}
               <OwnerBadge name={user.username} size="sm" />
+              <VerifiedBadge matchesPlayed={user.lifetime?.matchesPlayed || 0} />
               {user.countryCode && (
                 <span className="ml-2 text-base" title={user.countryCode}>
                   {flagFor(user.countryCode)}
                 </span>
               )}
             </p>
+            {/* Custom tagline (one-line subtitle) */}
+            {editingTagline ? (
+              <input
+                autoFocus
+                value={user.tagline}
+                onChange={(e) => update({ tagline: e.target.value.slice(0, 60) })}
+                onBlur={() => setEditingTagline(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setEditingTagline(false);
+                }}
+                placeholder="Your one-line tagline…"
+                maxLength={60}
+                className="mt-2 w-full rounded-md border border-edge-cyan/40 bg-black/40 px-2 py-1 text-center text-[11px] tracking-[0.18em] text-white outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => setEditingTagline(true)}
+                className="mt-1.5 block w-full truncate text-center text-[11px] italic tracking-wide text-white/45 hover:text-white/70"
+                title="Edit tagline"
+              >
+                {user.tagline || "+ Add a tagline"}
+              </button>
+            )}
             <p
               className="mt-1 text-[11px] uppercase tracking-[0.32em]"
               style={{ color: rank.color }}
@@ -127,8 +155,32 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {user.matchHistory.length >= 3 && (
+        <div className="mt-10">
+          <ActivityHeatmap history={user.matchHistory} />
+        </div>
+      )}
+
       <div className="mt-10">
-        <h2 className="label-xs mb-3">Match History</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="label-xs">Match History</h2>
+          <div className="inline-flex rounded-md border border-white/10 bg-black/30 p-0.5">
+            {(["all", "wins", "losses"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setHistoryFilter(f)}
+                className={
+                  "rounded-sm px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] transition " +
+                  (historyFilter === f
+                    ? "bg-edge-cyan/20 text-edge-cyan"
+                    : "text-white/45 hover:text-white/80")
+                }
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
         {user.matchHistory.length === 0 ? (
           <div className="glass rounded-2xl px-6 py-10 text-center text-sm text-white/40">
             No matches yet. Head to{" "}
@@ -139,7 +191,15 @@ export default function ProfilePage() {
           </div>
         ) : (
           <div className="glass overflow-hidden rounded-2xl">
-            {user.matchHistory.map((m) => (
+            {user.matchHistory
+              .filter((m) =>
+                historyFilter === "all"
+                  ? true
+                  : historyFilter === "wins"
+                    ? m.won
+                    : !m.won
+              )
+              .map((m) => (
               <button
                 key={m.id}
                 onClick={() => setReplay(m)}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 const REACTIONS: Array<{ key: string; emoji: string; label: string }> = [
+  { key: "cheer", emoji: "📣", label: "Cheer" },
   { key: "fire", emoji: "🔥", label: "Fire" },
   { key: "crown", emoji: "👑", label: "Goated" },
   { key: "goat", emoji: "🐐", label: "GOAT" },

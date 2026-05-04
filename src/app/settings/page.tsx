@@ -199,6 +199,20 @@ export default function SettingsPage() {
         />
       </Section>
 
+      {/* Accessibility */}
+      <Section title="Accessibility">
+        <Toggle
+          label="Reduced motion (kill animations + transitions)"
+          value={!!user.reducedMotion}
+          onChange={(v) => update({ reducedMotion: v })}
+        />
+        <Toggle
+          label="Larger text"
+          value={!!user.largerText}
+          onChange={(v) => update({ largerText: v })}
+        />
+      </Section>
+
       {/* Notifications */}
       <Section title="Notifications">
         <Toggle

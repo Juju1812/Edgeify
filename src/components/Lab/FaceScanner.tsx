@@ -1104,7 +1104,25 @@ export function FaceScanner({
         )}
 
         {phase === "loading-models" && (
-          <Overlay label="Loading neural-net models…" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
+            <p className="label-xs text-edge-cyan">Loading</p>
+            <div className="w-full max-w-xs">
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
+                <div
+                  className="h-full animate-pulse"
+                  style={{
+                    width: "60%",
+                    background:
+                      "linear-gradient(90deg, #22e9ff 0%, #ff5d8f 100%)"
+                  }}
+                />
+              </div>
+            </div>
+            <p className="text-xs leading-relaxed text-white/55">
+              Downloading neural-net weights · ~10MB on first load,
+              cached after.
+            </p>
+          </div>
         )}
 
         {phase === "ready" && (

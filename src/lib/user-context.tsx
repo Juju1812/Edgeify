@@ -185,6 +185,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     if (typeof user.soundVolume === "number") setSoundVolume(user.soundVolume);
   }, [user.soundVolume]);
 
+  // A11y: toggle body classes for reduced-motion / larger-text so the
+  // global CSS rules in globals.css apply across the whole app.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("a11y-reduced-motion", !!user.reducedMotion);
+    document.body.classList.toggle("a11y-larger-text", !!user.largerText);
+  }, [user.reducedMotion, user.largerText]);
+
   // Detect level-ups + new achievements and surface as toasts.
   useEffect(() => {
     if (!ready || !user.username) return;

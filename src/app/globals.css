@@ -183,7 +183,7 @@ body::after {
   }
 }
 
-/* Reduce motion for accessibility */
+/* Reduce motion for accessibility — both via user setting and OS pref */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -192,6 +192,25 @@ body::after {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+body.a11y-reduced-motion *,
+body.a11y-reduced-motion *::before,
+body.a11y-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Larger text — bump the root font-size, everything that uses rem
+   scales naturally. Tailwind utilities in absolute px are unaffected. */
+body.a11y-larger-text {
+  font-size: 17px;
+}
+body.a11y-larger-text .text-xs {
+  font-size: 13px;
+}
+body.a11y-larger-text .text-sm {
+  font-size: 15px;
 }
 
 /* Mobile touch-target sizing — make small chiclet buttons and pills

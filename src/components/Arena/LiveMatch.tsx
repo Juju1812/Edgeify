@@ -288,6 +288,9 @@ export function LiveMatch({
   // Edge Boost — armed before queuing, applies +10% to my round scores.
   const [boostArmed, setBoostArmed] = useState(false);
   const boostArmedRef = useRef(false);
+  // Auto-rematch — if true, after a match ends we automatically queue
+  // for another random opponent rather than returning to the lobby.
+  const [autoRematch, setAutoRematch] = useState(false);
   useEffect(() => {
     boostArmedRef.current = boostArmed;
   }, [boostArmed]);
@@ -461,6 +464,20 @@ export function LiveMatch({
     void startJoining(autoJoinCode);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoJoinCode, phase]);
+
+  // Auto-rematch — when a match ends and the toggle is on, queue
+  // another random match after a brief pause so the user can see
+  // their result first.
+  useEffect(() => {
+    if (!autoRematch) return;
+    if (phase !== "result") return;
+    const t = window.setTimeout(() => {
+      playAgain();
+      window.setTimeout(() => void startRandomMatch(), 800);
+    }, 3500);
+    return () => window.clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRematch, phase]);
 
   // Bubble match outcomes to the tournament orchestrator.
   useEffect(() => {
@@ -1461,6 +1478,8 @@ export function LiveMatch({
           boostArmed={boostArmed}
           setBoostArmed={setBoostArmed}
           ownedBoosts={user.edgeBoosts}
+          autoRematch={autoRematch}
+          setAutoRematch={setAutoRematch}
         />
       )}
 
@@ -1527,6 +1546,10 @@ export function LiveMatch({
           onSendChat={sendChat}
           localVideoAspect={localVideoAspect}
           remoteVideoAspect={remoteVideoAspect}
+          onForfeit={() => {
+            // Treat as immediate 0-2 loss to the opponent.
+            if (opponent) finalizeMatch(false, 0, 2);
+          }}
         />
       )}
 
@@ -1552,7 +1575,9 @@ function Lobby({
   setValue,
   boostArmed,
   setBoostArmed,
-  ownedBoosts
+  ownedBoosts,
+  autoRematch,
+  setAutoRematch
 }: {
   onRandom: () => void;
   onHost: () => void;
@@ -1562,9 +1587,53 @@ function Lobby({
   boostArmed: boolean;
   setBoostArmed: (b: boolean) => void;
   ownedBoosts: number;
+  autoRematch: boolean;
+  setAutoRematch: (v: boolean) => void;
 }) {
+  const { user } = useUser();
+  // Recent opponents from match history — top 3 most-recent ranked.
+  const recent = user.matchHistory
+    .filter((m) => !m.practice)
+    .slice(0, 3);
   return (
     <div className="space-y-4">
+      {/* Auto-rematch toggle — sticky between matches */}
+      <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/65 transition hover:border-edge-cyan/30">
+        <input
+          type="checkbox"
+          checked={autoRematch}
+          onChange={(e) => setAutoRematch(e.target.checked)}
+          className="h-4 w-4 accent-edge-cyan"
+        />
+        Auto-rematch after each match
+      </label>
+
+      {/* Recent opponents — quick rematch row */}
+      {recent.length > 0 && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
+          <p className="label-xs mb-2">Recent opponents</p>
+          <div className="flex flex-wrap gap-2">
+            {recent.map((m) => (
+              <span
+                key={m.id}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white/65"
+              >
+                <span style={{ color: m.won ? "#34d399" : "#f87171" }}>
+                  {m.won ? "W" : "L"}
+                </span>
+                <span className="text-white/85">{m.opponentName}</span>
+                <span className="stat-mono text-white/35">
+                  {m.eloDelta >= 0 ? "+" : ""}
+                  {m.eloDelta}
+                </span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/30">
+            Re-match: queue Random — same ELO band tends to repeat.
+          </p>
+        </div>
+      )}
       {/* Edge Boost arming */}
       <div className="glass flex items-center justify-between rounded-xl p-4">
         <div className="flex items-center gap-3">
@@ -1832,7 +1901,8 @@ function Arena({
   setChatInput,
   onSendChat,
   localVideoAspect,
-  remoteVideoAspect
+  remoteVideoAspect,
+  onForfeit
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1856,6 +1926,7 @@ function Arena({
   onSendChat: () => void;
   localVideoAspect?: string;
   remoteVideoAspect?: string;
+  onForfeit?: () => void;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -1879,9 +1950,38 @@ function Arena({
             <h2 className="heading-card text-xl">{criterionLabel}</h2>
           </>
         )}
-        {phase === "between" && lastRound && (
+        {phase === "between" && lastRound && (() => {
+          // Clutch: winning a round when down 0-1 in a Bo3, or 1-2 in
+          // Bo5. Detected by checking the prior round's wins state.
+          const prior = scoreboard.slice(0, -1);
+          const priorWins = prior.reduce(
+            (acc, r) => ({
+              me: acc.me + (r.me > r.opp ? 1 : 0),
+              opp: acc.opp + (r.opp > r.me ? 1 : 0)
+            }),
+            { me: 0, opp: 0 }
+          );
+          const wonThisRound = lastRound.me > lastRound.opp;
+          const lostThisRound = lastRound.me < lastRound.opp;
+          const myClutch = wonThisRound && priorWins.opp > priorWins.me;
+          const oppClutch = lostThisRound && priorWins.me > priorWins.opp;
+          return (
           <>
             <p className="label-xs">Round {round + 1} result</p>
+            {(myClutch || oppClutch) && (
+              <span
+                className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em]"
+                style={{
+                  borderColor: myClutch ? "#22e9ff" : "#ff5d8f",
+                  background: myClutch
+                    ? "rgba(34, 233, 255, 0.12)"
+                    : "rgba(255, 93, 143, 0.10)",
+                  color: myClutch ? "#22e9ff" : "#ff5d8f"
+                }}
+              >
+                ⚡ Clutch
+              </span>
+            )}
             <h2
               className="heading-card text-xl"
               style={{
@@ -1900,7 +2000,8 @@ function Arena({
                   : "Tied round"}
             </h2>
           </>
-        )}
+          );
+        })()}
       </div>
 
       {/* Mobile: stack vertically (each tile full-width landscape).
@@ -1968,6 +2069,7 @@ function Arena({
         chatInput={chatInput}
         setChatInput={setChatInput}
         onSendChat={onSendChat}
+        onForfeit={onForfeit}
       />
 
       {phase === "scanning" && (
@@ -2545,7 +2647,8 @@ function MobileToolbar({
   chatLog,
   chatInput,
   setChatInput,
-  onSendChat
+  onSendChat,
+  onForfeit
 }: {
   micOn: boolean;
   onMicToggle: () => void;
@@ -2555,6 +2658,7 @@ function MobileToolbar({
   chatInput: string;
   setChatInput: (v: string) => void;
   onSendChat: () => void;
+  onForfeit?: () => void;
 }) {
   const [chatOpen, setChatOpen] = useState(false);
   const unread = chatLog.filter((m) => m.from === "opp").length;
@@ -2602,6 +2706,17 @@ function MobileToolbar({
             </span>
           )}
         </button>
+        {onForfeit && (
+          <button
+            onClick={() => {
+              if (confirm("Forfeit this match? Counts as a loss.")) onForfeit();
+            }}
+            className="h-11 rounded-full border border-rose-500/40 bg-rose-500/[0.06] px-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-500/70 hover:bg-rose-500/15 sm:h-10"
+            title="Forfeit the match — counts as a loss"
+          >
+            Forfeit
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
