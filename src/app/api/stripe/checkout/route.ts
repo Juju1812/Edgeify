@@ -76,9 +76,38 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (e: unknown) {
-    const err = e as { message?: string };
+    const err = e as {
+      message?: string;
+      type?: string;
+      code?: string;
+      statusCode?: number;
+      raw?: { message?: string };
+    };
+    // eslint-disable-next-line no-console
+    console.error("[stripe checkout] failed", {
+      type: err.type,
+      code: err.code,
+      statusCode: err.statusCode,
+      message: err.message,
+      rawMessage: err.raw?.message,
+      keyPrefix: (process.env.STRIPE_SECRET_KEY || "").slice(0, 7),
+      pricePrefix: (process.env.STRIPE_PRICE_MONTHLY || "").slice(0, 8)
+    });
+    let userMsg = err.message || "Checkout failed.";
+    if (err.code === "resource_missing") {
+      userMsg =
+        "Stripe says STRIPE_PRICE_MONTHLY doesn't exist on the account this STRIPE_SECRET_KEY belongs to. Check that both env vars are from the same Stripe account AND the same mode (both test or both live).";
+    } else if (err.statusCode === 401) {
+      userMsg =
+        "Stripe rejected STRIPE_SECRET_KEY (401 Unauthorized). The key is wrong, has whitespace, or was rotated.";
+    }
     return NextResponse.json(
-      { error: "stripe_error", message: err.message || "Checkout failed." },
+      {
+        error: "stripe_error",
+        code: err.code,
+        type: err.type,
+        message: userMsg
+      },
       { status: 500 }
     );
   }
