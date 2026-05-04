@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useUser } from "@/lib/user-context";
 import { rankFromElo } from "@/lib/rank";
 
 export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
-  const { user, status, ready } = useUser();
+  const { user, status, ready, playAsGuest } = useUser();
   const [stats, setStats] = useState<{ onlineCount: number; inQueueCount: number } | null>(null);
 
   useEffect(() => {
@@ -83,20 +84,37 @@ export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
         {!ready ? (
           <div className="h-12 w-72 animate-pulse rounded-2xl bg-white/[0.04]" />
         ) : status === "guest" ? (
-          <button
-            onClick={onSignIn}
-            className="group relative overflow-hidden rounded-xl border border-edge-cyan/40 bg-edge-cyan/10 px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/15 hover:text-white"
-          >
-            <span className="relative z-10">Claim your rank →</span>
-            <span
-              aria-hidden
-              className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-edge-cyan/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
-            />
-          </button>
+          <>
+            {/* Primary CTA: instant guest play (no friction). */}
+            <button
+              onClick={playAsGuest}
+              className="group relative overflow-hidden rounded-xl border border-edge-cyan/60 bg-edge-cyan/15 px-6 py-3.5 text-[12px] font-bold uppercase tracking-[0.22em] text-white shadow-glow transition hover:border-edge-cyan hover:bg-edge-cyan/25"
+            >
+              <span className="relative z-10">Play instantly →</span>
+              <span
+                aria-hidden
+                className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
+              />
+            </button>
+            {/* Secondary: claim a real account so progress saves across
+                devices. Subdued styling so the guest path stays primary. */}
+            <button
+              onClick={onSignIn}
+              className="rounded-xl border border-white/10 bg-white/[0.02] px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-white/65 transition hover:border-edge-cyan/30 hover:bg-edge-cyan/[0.04] hover:text-edge-cyan"
+            >
+              Sign in / Sign up
+            </button>
+            <p className="basis-full text-[10px] uppercase tracking-[0.32em] text-white/30">
+              No account required · saves to this device · claim anytime
+            </p>
+          </>
         ) : status === "auth-no-scan" ? (
-          <span className="rounded-xl border border-edge-cyan/30 bg-edge-cyan/[0.06] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-cyan">
-            {user.username} · scan to begin
-          </span>
+          <Link
+            href="/lab"
+            className="rounded-xl border border-edge-cyan/40 bg-edge-cyan/10 px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/20 hover:text-white"
+          >
+            {user.username} · scan to begin →
+          </Link>
         ) : (
           <RankPill
             username={user.username!}

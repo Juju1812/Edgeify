@@ -35,6 +35,13 @@ type UserContextValue = {
   authedRemote: boolean;
   /** Local-only fast sign-in (legacy, no password). Kept for compatibility. */
   signIn: (username: string, isOver18: boolean) => void;
+  /**
+   * Start playing immediately without an account. Picks a random
+   * "GUEST-XXXX" callsign, stamps the user as locally-active, and
+   * keeps everything in localStorage. They can convert to a real
+   * account at any time via signUp — all stats carry over.
+   */
+  playAsGuest: () => void;
   /** Server-backed sign-up: creates an account and seeds local state. */
   signUp: (username: string, password: string, isOver18: boolean) => Promise<AuthError | null>;
   /** Server-backed sign-in: verifies password and pulls saved profile. */
@@ -300,6 +307,23 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // Anonymous quick-start. Picks a random callsign so the rest of the
+  // app — which keys off `username` — treats them like a regular user.
+  // No password, no remote sync; their state lives in localStorage.
+  const playAsGuest = useCallback(() => {
+    const id = Math.random().toString(36).slice(2, 6).toUpperCase();
+    setUser((prev) => ({
+      ...prev,
+      username: prev.username || `GUEST-${id}`,
+      authedAt: Date.now(),
+      // Guests have already implicitly accepted our entertainment-only
+      // disclaimer by clicking the button — same as if they'd ticked
+      // it in the modal.
+      isOver18: true,
+      consentedAt: Date.now()
+    }));
+  }, []);
+
   const signUp = useCallback(
     async (username: string, password: string, isOver18: boolean) => {
       try {
@@ -399,13 +423,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       ready,
       authedRemote,
       signIn,
+      playAsGuest,
       signUp,
       signInRemote,
       signOut,
       update,
       deleteAccount
     }),
-    [user, ready, authedRemote, signIn, signUp, signInRemote, signOut, update, deleteAccount]
+    [user, ready, authedRemote, signIn, playAsGuest, signUp, signInRemote, signOut, update, deleteAccount]
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

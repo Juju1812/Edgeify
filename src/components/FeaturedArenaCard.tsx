@@ -20,7 +20,7 @@ export function FeaturedArenaCard({
 }: {
   onSignIn: () => void;
 }) {
-  const { user, status, ready } = useUser();
+  const { user, status, ready, playAsGuest } = useUser();
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
@@ -46,12 +46,17 @@ export function FeaturedArenaCard({
   const canPlay = ready && status !== "guest" && status !== "auth-no-scan";
   const rank = ready && user.username ? rankFromElo(user.elo) : null;
 
-  // Click target — sign-in modal for guests, scan prompt for unscanned,
-  // /arena for everyone else.
+  // Click target — guest fast-path for anonymous users (instant play
+  // with a random callsign), scan prompt for unscanned users, /arena
+  // for everyone else.
   const cta = !ready
     ? null
     : status === "guest"
-      ? { label: "Sign in to play", onClick: onSignIn, kind: "guest" as const }
+      ? {
+          label: "Play instantly",
+          onClick: playAsGuest,
+          kind: "guest" as const
+        }
       : status === "auth-no-scan"
         ? { label: "Scan first", href: "/lab" as const, kind: "scan" as const }
         : { label: "Find Match", href: "/arena" as const, kind: "play" as const };

@@ -13,7 +13,7 @@ export function SignInModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { signUp, signInRemote } = useUser();
+  const { signUp, signInRemote, playAsGuest } = useUser();
   const [mode, setMode] = useState<Mode>("signup");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -99,7 +99,7 @@ export function SignInModal({
                 className={
                   "flex-1 rounded-lg px-3 py-2 transition " +
                   (mode === "signup"
-                    ? "bg-mog-violet/20 text-white"
+                    ? "bg-edge-cyan/20 text-white"
                     : "text-white/40 hover:text-white/70")
                 }
               >
@@ -113,7 +113,7 @@ export function SignInModal({
                 className={
                   "flex-1 rounded-lg px-3 py-2 transition " +
                   (mode === "signin"
-                    ? "bg-mog-violet/20 text-white"
+                    ? "bg-edge-cyan/20 text-white"
                     : "text-white/40 hover:text-white/70")
                 }
               >
@@ -143,7 +143,7 @@ export function SignInModal({
                   placeholder="JRUB"
                   maxLength={16}
                   autoComplete="username"
-                  className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-base uppercase tracking-[0.18em] text-white outline-none transition focus:border-mog-violet focus:ring-2 focus:ring-mog-violet/30"
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-base uppercase tracking-[0.18em] text-white outline-none transition focus:border-edge-cyan focus:ring-2 focus:ring-edge-cyan/30"
                 />
               </label>
 
@@ -157,7 +157,7 @@ export function SignInModal({
                   placeholder="••••••••"
                   maxLength={200}
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition focus:border-mog-violet focus:ring-2 focus:ring-mog-violet/30"
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition focus:border-edge-cyan focus:ring-2 focus:ring-edge-cyan/30"
                 />
                 {mode === "signup" && (
                   <span className="mt-1 block text-[10px] uppercase tracking-[0.22em] text-white/30">
@@ -173,7 +173,7 @@ export function SignInModal({
                       type="checkbox"
                       checked={over18}
                       onChange={(e) => setOver18(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-mog-violet"
+                      className="mt-0.5 h-4 w-4 accent-edge-cyan"
                     />
                     <span>
                       I am <span className="text-white">18 or older</span>.
@@ -185,7 +185,7 @@ export function SignInModal({
                       type="checkbox"
                       checked={consent}
                       onChange={(e) => setConsent(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-mog-violet"
+                      className="mt-0.5 h-4 w-4 accent-edge-cyan"
                     />
                     <span>
                       I understand <span className="text-white">EdgeScore</span> is
@@ -212,7 +212,7 @@ export function SignInModal({
                 <button
                   onClick={submit}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-4 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:border-mog-violet hover:bg-mog-violet/30 disabled:opacity-40"
+                  className="flex-1 rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-4 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:border-edge-cyan hover:bg-edge-cyan/25 disabled:opacity-40"
                 >
                   {busy
                     ? "…"
@@ -220,6 +220,33 @@ export function SignInModal({
                       ? "Create Account →"
                       : "Sign In →"}
                 </button>
+              </div>
+
+              {/* Guest fast-path — sets a random local callsign and
+                  starts playing immediately. Progress lives in this
+                  device's localStorage; can be claimed any time via
+                  Sign Up later (all stats carry over). */}
+              <div className="relative pt-2">
+                <div className="flex items-center gap-3">
+                  <span className="h-px flex-1 bg-white/10" />
+                  <span className="text-[10px] uppercase tracking-[0.32em] text-white/30">
+                    or
+                  </span>
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+                <button
+                  onClick={() => {
+                    playAsGuest();
+                    onClose();
+                  }}
+                  disabled={busy}
+                  className="mt-3 w-full rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white/75 transition hover:border-edge-coral/40 hover:bg-edge-coral/[0.06] hover:text-edge-coral disabled:opacity-40"
+                >
+                  Continue as Guest →
+                </button>
+                <p className="mt-2 text-center text-[10px] uppercase tracking-[0.22em] text-white/30">
+                  Saved on this device · Claim anytime to keep across devices
+                </p>
               </div>
             </div>
           </motion.div>
