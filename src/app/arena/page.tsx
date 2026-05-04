@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
 import { LiveMatch } from "@/components/Arena/LiveMatch";
@@ -29,13 +30,45 @@ type Phase =
   | "between-rounds"
   | "result";
 
-const ROUND_CRITERIA = [
+const ROUND_CRITERIA_BO3 = [
   { key: "symmetry", label: "Symmetry" },
   { key: "jawlineDefinition", label: "Jawline" },
   { key: "composite", label: "Overall" }
 ] as const;
 
-type CriterionKey = (typeof ROUND_CRITERIA)[number]["key"];
+const ROUND_CRITERIA_BO5 = [
+  { key: "symmetry", label: "Symmetry" },
+  { key: "jawlineDefinition", label: "Jawline" },
+  { key: "cheekboneProm", label: "Cheekbones" },
+  { key: "goldenRatio", label: "Proportions" },
+  { key: "composite", label: "Overall" }
+] as const;
+
+type CriterionKey =
+  | (typeof ROUND_CRITERIA_BO3)[number]["key"]
+  | (typeof ROUND_CRITERIA_BO5)[number]["key"];
+
+function getCriteria(mode: GameMode): readonly { key: CriterionKey; label: string }[] {
+  if (mode === "bo5") return ROUND_CRITERIA_BO5;
+  if (mode === "sudden-death") return [{ key: "composite", label: "Sudden Death · Overall" }];
+  return ROUND_CRITERIA_BO3;
+}
+
+function winsToTake(mode: GameMode): number {
+  if (mode === "bo5") return 3;
+  if (mode === "sudden-death") return 1;
+  return 2;
+}
+
+function totalRounds(mode: GameMode): number {
+  if (mode === "bo5") return 5;
+  if (mode === "sudden-death") return 1;
+  return 3;
+}
+
+// Backwards-compat default — the bo3 criteria. Used for places that
+// don't yet thread the chosen mode through.
+const ROUND_CRITERIA = ROUND_CRITERIA_BO3;
 
 function scoreFor(s: EdgeScoreBreakdown, k: CriterionKey): number {
   if (k === "composite") return s.composite;
@@ -67,14 +100,36 @@ function clamp01(x: number) {
 }
 
 export default function ArenaPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto min-h-screen max-w-3xl px-6 pt-10">
+          <div className="glass h-64 animate-pulse rounded-2xl" />
+        </main>
+      }
+    >
+      <ArenaPageInner />
+    </Suspense>
+  );
+}
+
+function ArenaPageInner() {
   const { user, status, ready, update } = useUser();
-  const [mode, setMode] = useState<Mode>("select");
+  const searchParams = useSearchParams();
+  const inviteCode = (searchParams.get("join") || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+  const [mode, setMode] = useState<Mode>(inviteCode.length === 6 ? "live" : "select");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [searchBand, setSearchBand] = useState(100);
   const [boostActive, setBoostActive] = useState(false);
   const [practiceMode, setPracticeMode] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>("bo3");
   const [armedPowerUps, setArmedPowerUps] = useState<Set<PowerUpId>>(new Set());
+  // ELO wager — extra ELO bet on top of normal delta, applied to the
+  // winner / paid by the loser. 0 = no wager (default).
+  const [wager, setWager] = useState<number>(0);
 
   function togglePowerUp(id: PowerUpId) {
     setArmedPowerUps((prev) => {
@@ -145,14 +200,16 @@ export default function ArenaPage() {
 
   function evalRound() {
     if (!user.edgeScore || !oppBreakdown) return;
-    const k = ROUND_CRITERIA[round].key;
+    const criteria = getCriteria(gameMode);
+    const wins_target = winsToTake(gameMode);
+    const total = totalRounds(gameMode);
+    const k = criteria[round].key;
     let me = Math.round(scoreFor(user.edgeScore, k));
     const opp = Math.round(scoreFor(oppBreakdown, k));
     if (boostActive) me = Math.min(100, Math.round(me * 1.1));
     const next = [...scores, { me, opp }];
     setScores(next);
 
-    // Bo3: end early if someone has 2 wins
     const wins = next.reduce(
       (acc, r) => ({
         me: acc.me + (r.me > r.opp ? 1 : 0),
@@ -161,7 +218,7 @@ export default function ArenaPage() {
       { me: 0, opp: 0 }
     );
 
-    if (wins.me >= 2 || wins.opp >= 2 || next.length === 3) {
+    if (wins.me >= wins_target || wins.opp >= wins_target || next.length === total) {
       finishMatch(next, wins.me >= wins.opp);
     } else {
       setPhase("between-rounds");
@@ -172,9 +229,14 @@ export default function ArenaPage() {
   function finishMatch(rounds: { me: number; opp: number }[], won: boolean) {
     if (!opponent) return;
     const isPlacement = user.placementsLeft > 0;
-    const delta = practiceMode
+    // ELO wager: pre-game opt-in to bet extra ELO. Loser pays it on top
+    // of the normal delta; winner gets it added.
+    const baseDelta = practiceMode
       ? 0
       : eloDelta(user.elo, opponent.elo, won ? 1 : 0, isPlacement);
+    const wagerDelta = practiceMode ? 0 : (won ? wager : -wager);
+    const delta = baseDelta + wagerDelta;
+    const criteria = getCriteria(gameMode);
 
     const record: MatchRecord = {
       id: `${Date.now()}-${opponent.id}`,
@@ -186,11 +248,11 @@ export default function ArenaPage() {
       eloDelta: delta,
       playedAt: Date.now(),
       rounds: rounds.map((r, i) => ({
-        criterion: ROUND_CRITERIA[i]?.label || "?",
+        criterion: criteria[i]?.label || "?",
         me: r.me,
         opp: r.opp
       })),
-      mode: "bo3",
+      mode: gameMode,
       practice: practiceMode
     };
 
@@ -200,7 +262,7 @@ export default function ArenaPage() {
         rawEloDelta: delta,
         record,
         practice: practiceMode,
-        mode: "bo3"
+        mode: gameMode
       })
     );
 
@@ -288,7 +350,10 @@ export default function ArenaPage() {
         )}
 
         {mode === "live" && (
-          <LiveMatch onClose={() => setMode("select")} />
+          <LiveMatch
+            onClose={() => setMode("select")}
+            autoJoinCode={inviteCode.length === 6 ? inviteCode : undefined}
+          />
         )}
 
         {mode === "quick" && (
@@ -305,6 +370,8 @@ export default function ArenaPage() {
               setGameMode={setGameMode}
               armedPowerUps={armedPowerUps}
               togglePowerUp={togglePowerUp}
+              wager={wager}
+              setWager={setWager}
             />
           )}
           {phase === "searching" && (
@@ -313,19 +380,24 @@ export default function ArenaPage() {
           {phase === "versus" && opponent && oppBreakdown && (
             <Versus key="vs" opponent={opponent} />
           )}
-          {(phase === "round" || phase === "between-rounds") && opponent && oppBreakdown && (
-            <Round
-              key={`r${round}-${phase}`}
-              round={round}
-              criterion={ROUND_CRITERIA[round]}
-              myScore={Math.round(scoreFor(user.edgeScore!, ROUND_CRITERIA[round].key))}
-              oppScore={Math.round(scoreFor(oppBreakdown, ROUND_CRITERIA[round].key))}
-              opponent={opponent}
-              waiting={phase === "between-rounds"}
-              priorScores={scores}
-              onComplete={evalRound}
-            />
-          )}
+          {(phase === "round" || phase === "between-rounds") && opponent && oppBreakdown && (() => {
+            const criteria = getCriteria(gameMode);
+            const cur = criteria[round];
+            return (
+              <Round
+                key={`r${round}-${phase}`}
+                round={round}
+                criterion={cur}
+                myScore={Math.round(scoreFor(user.edgeScore!, cur.key))}
+                oppScore={Math.round(scoreFor(oppBreakdown, cur.key))}
+                opponent={opponent}
+                waiting={phase === "between-rounds"}
+                priorScores={scores}
+                totalRounds={totalRounds(gameMode)}
+                onComplete={evalRound}
+              />
+            );
+          })()}
           {phase === "result" && matchResult && opponent && (
             <Result
               key="result"
@@ -402,7 +474,9 @@ function Lobby({
   gameMode,
   setGameMode,
   armedPowerUps,
-  togglePowerUp
+  togglePowerUp,
+  wager,
+  setWager
 }: {
   onStart: () => void;
   boostActive: boolean;
@@ -413,6 +487,8 @@ function Lobby({
   setGameMode: (m: GameMode) => void;
   armedPowerUps: Set<PowerUpId>;
   togglePowerUp: (id: PowerUpId) => void;
+  wager: number;
+  setWager: (n: number) => void;
 }) {
   const { user } = useUser();
   const rank = rankFromElo(user.elo);
@@ -536,8 +612,8 @@ function Lobby({
         })}
       </div>
 
-      {/* Practice toggle */}
-      <div className="mx-auto mt-3 flex max-w-sm justify-center">
+      {/* Practice toggle + ELO wager */}
+      <div className="mx-auto mt-3 flex max-w-md flex-wrap items-center justify-center gap-2">
         <button
           onClick={() => setPracticeMode(!practiceMode)}
           className={
@@ -550,11 +626,33 @@ function Lobby({
         >
           {practiceMode ? "Practice ✓" : "Practice Mode"}
         </button>
+
+        {!practiceMode && (
+          <div className="inline-flex items-center gap-1 rounded-lg border border-edge-coral/30 bg-edge-coral/[0.04] p-1">
+            <span className="px-2 text-[10px] uppercase tracking-[0.22em] text-edge-coral">
+              Wager
+            </span>
+            {[0, 5, 10, 25].map((w) => (
+              <button
+                key={w}
+                onClick={() => setWager(w)}
+                className={
+                  "rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] transition " +
+                  (wager === w
+                    ? "bg-edge-coral/25 text-white"
+                    : "text-white/45 hover:text-white/80")
+                }
+              >
+                {w === 0 ? "None" : `+${w}`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <button
         onClick={onStart}
-        className="mt-5 rounded-lg border border-mog-violet/50 bg-mog-violet/20 px-8 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-mog-violet/30"
+        className="mt-5 rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-8 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:border-edge-cyan hover:bg-edge-cyan/25"
       >
         Find Match →
       </button>
@@ -734,6 +832,7 @@ function Round({
   opponent,
   waiting,
   priorScores,
+  totalRounds,
   onComplete
 }: {
   round: number;
@@ -743,6 +842,7 @@ function Round({
   opponent: SeedUser;
   waiting: boolean;
   priorScores: { me: number; opp: number }[];
+  totalRounds: number;
   onComplete: () => void;
 }) {
   const { user } = useUser();
@@ -776,7 +876,7 @@ function Round({
       className="space-y-6"
     >
       <div className="text-center">
-        <p className="label-xs">Round {round + 1} of 3</p>
+        <p className="label-xs">Round {round + 1} of {totalRounds}</p>
         <h2 className="heading-card mt-1 text-2xl">{criterion.label}</h2>
       </div>
 

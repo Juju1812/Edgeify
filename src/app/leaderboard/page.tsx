@@ -16,12 +16,13 @@ type Entry = {
   edgeScore: number;
   faceDataUrl: string | null;
   countryCode?: string | null;
+  updatedAt?: number;
 };
 
 export default function LeaderboardPage() {
   const { user, status } = useUser();
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"global" | "friends">("global");
+  const [tab, setTab] = useState<"global" | "friends" | "daily" | "weekly">("global");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -78,17 +79,26 @@ export default function LeaderboardPage() {
     return s;
   }, [user.friends, user.username]);
 
-  const filtered = useMemo(
-    () =>
-      all
-        .filter((u) =>
-          tab === "friends" ? friendsSet.has(u.username.toLowerCase()) : true
-        )
-        .filter(
-          (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
-        ),
-    [all, query, tab, friendsSet]
-  );
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    return all
+      .filter((u) => {
+        if (tab === "friends") return friendsSet.has(u.username.toLowerCase());
+        if (tab === "daily") {
+          // Active within the last 24h. If updatedAt is missing (older
+          // entries), include them so the board isn't empty for new users.
+          return !u.updatedAt || now - u.updatedAt < dayMs;
+        }
+        if (tab === "weekly") {
+          return !u.updatedAt || now - u.updatedAt < 7 * dayMs;
+        }
+        return true;
+      })
+      .filter(
+        (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
+      );
+  }, [all, query, tab, friendsSet]);
 
   const myIndex = all.findIndex(
     (u) => u.username.toLowerCase() === user.username?.toLowerCase()
@@ -126,9 +136,15 @@ export default function LeaderboardPage() {
 
       {all.length > 0 && (
         <div className="mt-6 flex flex-wrap gap-3">
-          <div className="inline-flex rounded-lg border border-white/10 bg-black/30 p-1">
+          <div className="inline-flex flex-wrap rounded-lg border border-white/10 bg-black/30 p-1">
             <TabButton active={tab === "global"} onClick={() => setTab("global")}>
               Global
+            </TabButton>
+            <TabButton active={tab === "weekly"} onClick={() => setTab("weekly")}>
+              Weekly
+            </TabButton>
+            <TabButton active={tab === "daily"} onClick={() => setTab("daily")}>
+              Daily
             </TabButton>
             <TabButton active={tab === "friends"} onClick={() => setTab("friends")}>
               Friends ({user.friends.length})

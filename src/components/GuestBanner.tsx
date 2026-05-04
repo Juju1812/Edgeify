@@ -1,14 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { EdgeMark } from "./icons";
 import { OwnerBadge } from "./OwnerBadge";
+import { unreadCount } from "@/lib/inbox";
 
 const CURRENT_VER = "0.4.0";
 
 export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
   const { user, status, ready, authedRemote, signOut } = useUser();
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const refresh = () => setUnread(unreadCount());
+    refresh();
+    window.addEventListener("edgify:inbox-update", refresh);
+    return () => window.removeEventListener("edgify:inbox-update", refresh);
+  }, []);
 
   // Three distinct states:
   //   - "guest" (no username yet): "Continue as guest" CTA
@@ -105,6 +114,18 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
               )}
             </p>
             <div className="ml-auto flex items-center gap-2">
+              <Link
+                href="/inbox"
+                className="relative rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60 transition hover:border-edge-cyan/40 hover:text-edge-cyan"
+                title="Inbox"
+              >
+                Inbox
+                {unread > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-edge-coral px-1 text-[9px] font-bold text-black">
+                    {Math.min(99, unread)}
+                  </span>
+                )}
+              </Link>
               {user.changelogSeenVersion !== CURRENT_VER && (
                 <Link
                   href="/whats-new"

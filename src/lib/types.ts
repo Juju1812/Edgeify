@@ -14,6 +14,7 @@ export type PowerUpId = "boost" | "shield" | "mulligan" | "timeStop" | "critical
 
 export type ThemeId = "default" | "minimal" | "cyberpunk";
 export type ArColorId = "green" | "cyan" | "pink" | "gold" | "violet";
+export type ArFilterId = "none" | "crown" | "mustache" | "shades" | "horns" | "halo";
 
 export type LifetimeStats = {
   matchesPlayed: number;
@@ -116,6 +117,7 @@ export type UserState = {
   bio: string;                       // 140 char public bio
   pinnedMatchIds: string[];          // up to 3 pinned matches
   arColor: ArColorId;
+  arFilter: ArFilterId;
   theme: ThemeId;
   customEmojis: string[];            // 6 reaction emojis
   soundVolume: number;               // 0..1
@@ -163,6 +165,7 @@ export const DEFAULT_USER: UserState = {
   bio: "",
   pinnedMatchIds: [],
   arColor: "green",
+  arFilter: "none",
   theme: "default",
   customEmojis: ["🔥", "💀", "👑", "😂", "🗿", "🤡"],
   soundVolume: 0.7,

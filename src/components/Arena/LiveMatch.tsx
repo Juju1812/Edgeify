@@ -19,6 +19,7 @@ import { coachingTip } from "@/lib/coaching";
 import { Confetti } from "@/components/Confetti";
 import { DeepAnalysis } from "@/components/Arena/DeepAnalysis";
 import { OwnerBadge } from "@/components/OwnerBadge";
+import { drawArFilter } from "@/lib/ar-filters";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -197,7 +198,8 @@ export type LiveMatchAuto = {
 export function LiveMatch({
   onClose,
   auto,
-  onMatchEnd
+  onMatchEnd,
+  autoJoinCode
 }: {
   onClose: () => void;
   /** When provided, skip the lobby and auto-pair. Used by the
@@ -206,6 +208,9 @@ export function LiveMatch({
   /** Fired after the match concludes (after Result screen renders).
    *  Tournament uses this to advance the bracket. */
   onMatchEnd?: (result: { won: boolean }) => void;
+  /** When provided, skip the lobby and auto-join the given private
+   *  room code. Used by the /invite/[code] deep-link flow. */
+  autoJoinCode?: string;
 }) {
   const { user, update } = useUser();
 
@@ -447,6 +452,15 @@ export function LiveMatch({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, phase]);
+
+  // Auto-join a private room from the /invite/[code] deep link.
+  // Triggers once camera + models are loaded (phase === "lobby").
+  useEffect(() => {
+    if (!autoJoinCode || autoJoinCode.length !== 6) return;
+    if (phase !== "lobby") return;
+    void startJoining(autoJoinCode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoJoinCode, phase]);
 
   // Bubble match outcomes to the tournament orchestrator.
   useEffect(() => {
@@ -1111,6 +1125,13 @@ export function LiveMatch({
             overlay.width,
             arHex
           );
+          drawArFilter(
+            ctx,
+            user.arFilter || "none",
+            lastDrawnLandmarksRef.current,
+            overlay.width,
+            true
+          );
         }
 
         if (det && det.detection.score >= 0.55) {
@@ -1206,6 +1227,8 @@ export function LiveMatch({
           if (overlay && ctx) {
             const arHex = AR_COLOR_HEX[user.arColor] || "#4ade80";
             drawLiveOverlay(ctx, points, det.detection.box, overlay.width, arHex);
+            // Cosmetic AR filter on top (crown / mustache / shades / etc).
+            drawArFilter(ctx, user.arFilter || "none", points, overlay.width, true);
             // Cache for the gap-filling redraw on the next missed frame.
             lastDrawnLandmarksRef.current = points;
             lastDrawnBoxRef.current = {
@@ -1709,12 +1732,15 @@ function Hosting({
       <p className="mt-4 font-mono text-5xl font-bold tracking-[0.32em] text-white">
         {code}
       </p>
-      <button
-        onClick={onCopy}
-        className="mt-3 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-1.5 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
-      >
-        {copied ? "Copied ✓" : "Copy"}
-      </button>
+      <div className="mt-3 flex items-center justify-center gap-2">
+        <button
+          onClick={onCopy}
+          className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+        >
+          {copied ? "Copied ✓" : "Copy code"}
+        </button>
+        <CopyInviteLinkButton code={code} />
+      </div>
 
       <div className="mt-8 flex items-center justify-center gap-2">
         <span className="relative inline-flex h-2 w-2">
@@ -1731,6 +1757,37 @@ function Hosting({
         Cancel
       </button>
     </div>
+  );
+}
+
+/**
+ * Copy a deep-link invite to the clipboard so the host can paste it
+ * straight into iMessage / WhatsApp / Discord. Recipient lands on
+ * /invite/[code] which redirects them into the arena auto-joining
+ * the private room.
+ */
+function CopyInviteLinkButton({ code }: { code: string }) {
+  const [done, setDone] = useState(false);
+  function copy() {
+    if (typeof window === "undefined") return;
+    const url = `${window.location.origin}/invite/${code}`;
+    navigator.clipboard.writeText(url).then(
+      () => {
+        setDone(true);
+        window.setTimeout(() => setDone(false), 1500);
+      },
+      () => {
+        /* clipboard blocked */
+      }
+    );
+  }
+  return (
+    <button
+      onClick={copy}
+      className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.06] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan hover:bg-edge-cyan/15"
+    >
+      {done ? "Link copied ✓" : "Copy invite link"}
+    </button>
   );
 }
 
@@ -2080,12 +2137,12 @@ function PlayerTile(props: {
       </div>
       {props.showScore && (
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="absolute right-2 top-2 rounded-md border border-white/10 bg-black/80 px-2 py-1 text-right"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: "spring", stiffness: 220, damping: 18 }}
+          className="absolute right-3 top-3"
         >
-          <p className="text-[8px] uppercase tracking-[0.22em] text-white/50">Score</p>
-          <p className="font-mono text-base font-bold text-white">{props.score ?? "—"}</p>
+          <ScoreGauge value={props.score} accent={props.rankColor} />
         </motion.div>
       )}
     </div>
@@ -2388,6 +2445,90 @@ function Result({
 function photoOnly(url: string | null | undefined): string | null {
   if (!url) return null;
   return /^data:image\/(jpeg|png|webp)/.test(url) ? url : null;
+}
+
+/**
+ * In-round score readout. Circular SVG progress ring with the value
+ * tweened smoothly via local state. Replaces the old plain "SCORE 69"
+ * label with something that reads as a HUD instrument.
+ */
+function ScoreGauge({
+  value,
+  accent
+}: {
+  value: number | null;
+  accent: string;
+}) {
+  const target = Math.max(0, Math.min(100, value ?? 0));
+  const [display, setDisplay] = useState(target);
+  // Smoothly tween towards the target value when it changes.
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const from = display;
+    const to = target;
+    const dur = 400;
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - start) / dur);
+      const eased = 1 - Math.pow(1 - k, 3);
+      setDisplay(from + (to - from) * eased);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
+  const r = 30;
+  const c = 2 * Math.PI * r;
+  const dash = c * (display / 100);
+
+  return (
+    <div className="relative h-[78px] w-[78px]">
+      <svg
+        viewBox="0 0 80 80"
+        className="absolute inset-0 -rotate-90"
+        style={{ filter: "drop-shadow(0 0 8px rgba(34,233,255,0.35))" }}
+      >
+        <defs>
+          <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#22e9ff" />
+            <stop offset="100%" stopColor="#ff5d8f" />
+          </linearGradient>
+        </defs>
+        {/* Track */}
+        <circle
+          cx="40"
+          cy="40"
+          r={r}
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth="5"
+          fill="rgba(0,0,0,0.55)"
+        />
+        {/* Progress arc */}
+        <circle
+          cx="40"
+          cy="40"
+          r={r}
+          stroke="url(#scoreGrad)"
+          strokeWidth="5"
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={`${dash} ${c}`}
+        />
+        {/* Tier-color tick at 12 o'clock */}
+        <circle cx="40" cy="10" r="2" fill={accent} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="stat-mono text-[8px] uppercase tracking-[0.22em] text-white/45">
+          SCORE
+        </span>
+        <span className="stat-mono text-xl font-bold leading-none text-white">
+          {value === null ? "—" : Math.round(display)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 /**

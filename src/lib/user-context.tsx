@@ -21,6 +21,7 @@ import {
 import { useToast } from "./toast-context";
 import { ACHIEVEMENTS } from "./achievements";
 import { setSoundVolume } from "./audio";
+import { pushInbox } from "./inbox";
 
 const STORAGE_KEY = "edgify:user:v1";
 const TOKEN_KEY = "edgify:auth:token:v1";
@@ -205,12 +206,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       else if (reward?.kind === "title") extra = ` · "${reward.title}"`;
       else if (reward?.kind === "frame") extra = ` · ${reward.frame} frame`;
       toast(`Level ${lvl}!${extra}`, { kind: "success", emoji: "✨", ttl: 5000 });
+      pushInbox({
+        kind: "levelup",
+        title: `Level ${lvl}!`,
+        body: `You reached season level ${lvl}${extra}.`,
+        emoji: "✨",
+        href: "/season"
+      });
       lastLevelRef.current = lvl;
     }
     for (const a of ACHIEVEMENTS) {
       if (a.check(user) && !lastAchievementsRef.current.has(a.id)) {
         lastAchievementsRef.current.add(a.id);
         toast(`${a.name} unlocked`, { kind: "success", emoji: a.emoji, ttl: 5000 });
+        pushInbox({
+          kind: "achievement",
+          title: `${a.name} unlocked`,
+          body: a.description,
+          emoji: a.emoji,
+          href: "/achievements"
+        });
       }
     }
   }, [user, ready, toast]);

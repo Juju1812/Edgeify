@@ -26,6 +26,9 @@ import {
 import { ActivityTicker } from "@/components/ActivityTicker";
 import { RankProgressWidget } from "@/components/RankProgressWidget";
 import { StreakCalendar } from "@/components/StreakCalendar";
+import { StreakLadder } from "@/components/StreakLadder";
+import { RankDecayWidget } from "@/components/RankDecayWidget";
+import { EventBanner } from "@/components/EventBanner";
 import { useUser } from "@/lib/user-context";
 
 export default function HomePage() {
@@ -68,14 +71,20 @@ export default function HomePage() {
         <HeroBadge onSignIn={openSignIn} />
       </section>
 
+      {/* ───── LIMITED-TIME EVENT (only when active) ───── */}
+      <section className="mx-auto mt-6 max-w-[1400px] px-6">
+        <EventBanner />
+      </section>
+
       {/* ───── PRIMARY: Featured 1V1 Arena ───── */}
       <section className="mx-auto mt-10 max-w-[1400px] px-6 sm:mt-14">
         <FeaturedArenaCard onSignIn={openSignIn} />
       </section>
 
-      {/* ───── PROMO SERIES (only when active) ───── */}
-      <section className="mx-auto mt-5 max-w-[1400px] px-6">
+      {/* ───── PROMO SERIES + RANK DECAY (only when active) ───── */}
+      <section className="mx-auto mt-5 max-w-[1400px] space-y-3 px-6">
         <PromoSeriesWidget />
+        <RankDecayWidget />
       </section>
 
       {/* ───── SECONDARY: 3-up tiles (Calibrate / Leaderboard / Tournaments) ───── */}
@@ -134,13 +143,17 @@ export default function HomePage() {
         <RankProgressWidget />
         <StreakCalendar />
       </section>
+      <section className="mx-auto mt-3 max-w-[1400px] px-6">
+        <StreakLadder />
+      </section>
 
       {/* ───── EXTRA NAV ───── */}
       <section className="mx-auto mt-5 max-w-[1400px] px-6">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <NavChip href="/daily" label="Daily Boss" hint="Today's shared opponent" accent="coral" />
-          <NavChip href="/friends" label="Friends" hint="Add players, online" />
-          <NavChip href="/career" label="Career" hint="Lifetime stats" />
+          <NavChip href="/live" label="Live Feed" hint="Active players now" />
+          <NavChip href="/friends" label="Friends" hint="Add players, DM" />
+          <NavChip href="/career" label="Career" hint="Lifetime + coach" />
           <NavChip href="/achievements" label="Unlocks" hint="Achievements" />
           <NavChip href="/settings" label="Settings" hint="AR, mic, privacy" />
         </div>

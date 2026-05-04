@@ -8,6 +8,7 @@ import { useToast } from "@/lib/toast-context";
 import { COUNTRIES } from "@/lib/countries";
 import { setSoundVolume } from "@/lib/audio";
 import type { ArColorId } from "@/lib/types";
+import { AR_FILTERS } from "@/lib/ar-filters";
 
 const AR_COLORS: { id: ArColorId; label: string; hex: string }[] = [
   { id: "green", label: "Lime", hex: "#4ade80" },
@@ -117,6 +118,29 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </Field>
+
+        <Field label="AR Filter">
+          <div className="flex flex-wrap gap-2">
+            {AR_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => update({ arFilter: f.id })}
+                className={
+                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] transition " +
+                  ((user.arFilter || "none") === f.id
+                    ? "border-edge-cyan/60 bg-edge-cyan/10 text-edge-cyan"
+                    : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/20")
+                }
+              >
+                <span className="text-base">{f.emoji}</span>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/30">
+            Cosmetic — drawn over your face during matches.
+          </p>
         </Field>
       </Section>
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@/lib/user-context";
+import { suggestCallsigns } from "@/lib/callsign-gen";
 
 type Mode = "signup" | "signin";
 
@@ -145,6 +146,7 @@ export function SignInModal({
                   autoComplete="username"
                   className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-base uppercase tracking-[0.18em] text-white outline-none transition focus:border-edge-cyan focus:ring-2 focus:ring-edge-cyan/30"
                 />
+                {mode === "signup" && <CallsignSuggester onPick={(s) => setName(s)} />}
               </label>
 
               <label className="block">
@@ -253,5 +255,40 @@ export function SignInModal({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Quick-pick row of randomly generated callsigns. The shuffle button
+ * regenerates fresh suggestions so users who don't love their first
+ * batch can hit it for more.
+ */
+function CallsignSuggester({ onPick }: { onPick: (s: string) => void }) {
+  const [seed, setSeed] = useState(0);
+  const suggestions = useMemo(() => suggestCallsigns(5), [seed]);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[9px] uppercase tracking-[0.32em] text-white/35">
+        Try
+      </span>
+      {suggestions.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onPick(s)}
+          className="rounded-md border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/65 transition hover:border-edge-cyan/40 hover:bg-edge-cyan/[0.06] hover:text-edge-cyan"
+        >
+          {s}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => setSeed((s) => s + 1)}
+        className="rounded-md border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white/45 transition hover:border-white/20 hover:text-white/80"
+        title="Shuffle"
+      >
+        ↻
+      </button>
+    </div>
   );
 }

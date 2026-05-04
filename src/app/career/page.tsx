@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Footer } from "@/components/Footer";
+import { AskCoachButton } from "@/components/AskCoachButton";
+import { EdgeScoreRadar } from "@/components/EdgeScoreRadar";
 import { useUser } from "@/lib/user-context";
 
 export default function CareerPage() {
@@ -50,6 +52,11 @@ export default function CareerPage() {
         <BigStat label="ELO" value={user.elo} />
         <BigStat label="Peak ELO" value={user.peakElo} />
         <BigStat label="Current Streak" value={user.streak} />
+      </div>
+
+      <div className="mt-10 grid gap-3 lg:grid-cols-2">
+        {user.edgeScore && <EdgeScoreRadar score={user.edgeScore} />}
+        <AskCoachButton />
       </div>
 
       <Footer />
