@@ -8,6 +8,7 @@ import { OwnerBadge } from "@/components/OwnerBadge";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { AchievementsShowcase } from "@/components/AchievementsShowcase";
+import { ShareScoreCardButton } from "@/components/ShareScoreCardButton";
 import { rankFromElo, RANKS } from "@/lib/rank";
 import { flagFor } from "@/lib/flag";
 import { useUser } from "@/lib/user-context";
@@ -140,6 +141,9 @@ export default function ProfilePage() {
           <Stat label="Win rate" value={`${winRate}%`} />
           <Stat label="Win streak" value={user.streak} />
           <Stat label="Peak ELO" value={user.peakElo} />
+          <div className="pt-2">
+            <ShareScoreCardButton />
+          </div>
         </div>
       </div>
 

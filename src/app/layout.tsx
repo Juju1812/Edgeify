@@ -6,19 +6,48 @@ import { BugReportButton } from "@/components/BugReportButton";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Edgify — Ranked 1v1 Face-Offs",
+  metadataBase: new URL("https://edgify.cc"),
+  title: "Edgify — AI-scored 1v1 face-offs",
   description:
     "Live 1v1 face-offs scored by AI on geometric facial measurements. Climb the seasonal ranked ladder against real opponents — no bots, no filters. EdgeScore is an entertainment metric, not an objective beauty judgment.",
-  keywords: ["edgify", "edgescore", "face-off", "ranked", "1v1", "leaderboard"],
+  keywords: [
+    "edgify",
+    "edgescore",
+    "face-off",
+    "ranked",
+    "1v1",
+    "leaderboard",
+    "looksmaxxing",
+    "face rating",
+    "AI face score"
+  ],
   manifest: "/manifest.json",
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg"
   },
   openGraph: {
-    title: "Edgify",
-    description: "Ranked 1v1 face-offs. Climb the leaderboard.",
-    type: "website"
+    title: "Edgify — AI-scored 1v1 face-offs",
+    description:
+      "Real opponents, AI scoring, ELO ladder. Free, no account required.",
+    type: "website",
+    url: "https://edgify.cc",
+    siteName: "Edgify",
+    images: [
+      {
+        url: "/api/og/site",
+        width: 1200,
+        height: 630,
+        alt: "Edgify"
+      }
+    ]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Edgify — AI-scored 1v1 face-offs",
+    description:
+      "Real opponents, AI scoring, ELO ladder. Free, no account required.",
+    images: ["/api/og/site"]
   },
   robots: { index: true, follow: true }
 };

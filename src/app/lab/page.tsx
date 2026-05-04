@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { FaceScanner, type ScanResult } from "@/components/Lab/FaceScanner";
 import { ScoreReveal } from "@/components/Lab/ScoreReveal";
+import { FirstScanShare } from "@/components/Lab/FirstScanShare";
 import { SignInModal } from "@/components/SignInModal";
 import { Footer } from "@/components/Footer";
 
@@ -12,6 +13,7 @@ export default function LabPage() {
   const { user, status, ready, update } = useUser();
   const [signInOpen, setSignInOpen] = useState(false);
   const [pending, setPending] = useState<ScanResult | null>(null);
+  const [showShare, setShowShare] = useState(false);
 
   function handleComplete(r: ScanResult) {
     setPending(r);
@@ -19,6 +21,7 @@ export default function LabPage() {
 
   function commit() {
     if (!pending) return;
+    const wasFirstScan = !user.hasScanned;
     update((prev) => ({
       hasScanned: true,
       faceDataUrl: pending.faceDataUrl,
@@ -33,6 +36,8 @@ export default function LabPage() {
       }
     }));
     setPending(null);
+    // Viral on-ramp: auto-show share card on the first ever scan.
+    if (wasFirstScan) setShowShare(true);
   }
 
   return (
@@ -76,6 +81,15 @@ export default function LabPage() {
 
       <Footer />
       <SignInModal open={signInOpen} onClose={() => setSignInOpen(false)} />
+      {showShare && user.edgeScore && (
+        <FirstScanShare
+          edgeScore={user.edgeScore}
+          faceDataUrl={user.faceDataUrl}
+          username={user.username || "PLAYER"}
+          elo={user.elo}
+          onClose={() => setShowShare(false)}
+        />
+      )}
     </main>
   );
 }

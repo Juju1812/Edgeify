@@ -58,9 +58,9 @@ export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         className="heading-display text-5xl sm:text-6xl lg:text-7xl"
       >
-        Sharper than the <span className="brand-edge">edge</span>.
+        The <span className="brand-edge">ranked</span> face-off.
         <br />
-        Higher on the board.
+        Live opponents. AI scoring.
       </motion.h1>
 
       <motion.p
@@ -69,9 +69,9 @@ export function HeroBadge({ onSignIn }: { onSignIn: () => void }) {
         transition={{ duration: 0.6, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
         className="max-w-xl text-base leading-relaxed text-white/55"
       >
-        Live 1v1 face-offs, scored by AI on geometric facial measurements.
-        Climb the seasonal ranked ladder against real opponents — no bots,
-        no filters.
+        Scan your face in 8 seconds. Match a real player in your ELO band.
+        AI scores both faces in real time, you keep the receipts. Free, no
+        account needed to start.
       </motion.p>
 
       {/* Identity row — username + rank, always shown, with sign-in CTA
