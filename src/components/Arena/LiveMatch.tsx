@@ -601,6 +601,32 @@ export function LiveMatch({
   const pollTimerRef = useRef<number | null>(null);
   const matchedRef = useRef(false);
   const [searchSeconds, setSearchSeconds] = useState(0);
+  // Wall-clock start of the current matchmaking session — used by the
+  // UI clock effect below. Kept in a ref so it's set synchronously when
+  // we enter the phase, not later when the async setup finishes.
+  const matchmakingStartTsRef = useRef<number | null>(null);
+
+  // UI clock for the matchmaking screen. Runs as soon as `phase` flips
+  // to "matchmaking" — independently of the peer/broker setup, which can
+  // take 1-2s on first click while peerjs is being downloaded. Ticks at
+  // 250ms so seconds advance smoothly (was previously inside the 1500ms
+  // server-poll, which made the clock skip every other second).
+  useEffect(() => {
+    if (phase !== "matchmaking") {
+      matchmakingStartTsRef.current = null;
+      return;
+    }
+    if (!matchmakingStartTsRef.current) {
+      matchmakingStartTsRef.current = Date.now();
+      setSearchSeconds(0);
+    }
+    const t = window.setInterval(() => {
+      const start = matchmakingStartTsRef.current;
+      if (!start) return;
+      setSearchSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [phase]);
 
   async function startRandomMatch() {
     try {
@@ -689,11 +715,10 @@ export function LiveMatch({
         return;
       }
 
-      // No immediate match — start polling
-      const startTs = Date.now();
+      // No immediate match — start polling. The UI clock is driven
+      // independently by an effect on `phase`; this interval only
+      // hits the server every 1500ms.
       const tick = setInterval(async () => {
-        setSearchSeconds(Math.floor((Date.now() - startTs) / 1000));
-
         if (matchedRef.current) {
           window.clearInterval(tick);
           pollTimerRef.current = null;
