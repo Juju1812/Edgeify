@@ -285,15 +285,40 @@ export function LiveMatch({
   const [localVideoAspect, setLocalVideoAspect] = useState<string>("4 / 3");
   const [remoteVideoAspect, setRemoteVideoAspect] = useState<string>("4 / 3");
 
-  // Edge Boost — armed before queuing, applies +10% to my round scores.
-  const [boostArmed, setBoostArmed] = useState(false);
-  const boostArmedRef = useRef(false);
+  // Edge Boost — activated PER ROUND mid-match. The set holds the
+  // round indices where the user has consumed a boost; finishRound
+  // reads it via the ref so the scan loop sees the latest state.
+  const [boostRounds, setBoostRounds] = useState<Set<number>>(new Set());
+  const boostRoundsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    boostRoundsRef.current = boostRounds;
+  }, [boostRounds]);
+  // Bump on each activation to drive the floating "+10" animation.
+  const [boostFlashId, setBoostFlashId] = useState(0);
   // Auto-rematch — if true, after a match ends we automatically queue
   // for another random opponent rather than returning to the lobby.
   const [autoRematch, setAutoRematch] = useState(false);
-  useEffect(() => {
-    boostArmedRef.current = boostArmed;
-  }, [boostArmed]);
+
+  function activateBoostNow() {
+    const r = roundRef.current;
+    if (boostRoundsRef.current.has(r)) return; // already used this round
+    if (user.edgeBoosts <= 0) return; // no inventory
+    setBoostRounds((prev) => {
+      const next = new Set(prev);
+      next.add(r);
+      return next;
+    });
+    update((prev) => ({
+      edgeBoosts: Math.max(0, prev.edgeBoosts - 1),
+      lifetime: {
+        ...prev.lifetime,
+        totalBoostsUsed: prev.lifetime.totalBoostsUsed + 1
+      }
+    }));
+    setBoostFlashId((n) => n + 1);
+    playSfx("elo");
+    vibrate(40);
+  }
 
   function spawnReaction(from: "me" | "opp", emoji: string) {
     const id = ++reactionIdRef.current;
@@ -1068,10 +1093,11 @@ export function LiveMatch({
       } else if (sampleBufferRef.current.length > 0) {
         finalVal = Math.round(trimmedMean(sampleBufferRef.current, 0.15));
       }
-      // Edge Boost: +10% applied at round-end (so score-tick previews
-      // already reflect the boost).
-      if (boostArmedRef.current) {
-        finalVal = Math.min(100, Math.round(finalVal * 1.1));
+      // Edge Boost: +10% applied at round-end ONLY for the round
+      // the user activated it in. Flat +10 to the final score so the
+      // visible "+10" animation matches the math exactly.
+      if (boostRoundsRef.current.has(idx)) {
+        finalVal = Math.min(100, finalVal + 10);
       }
       setLiveMine(finalVal);
       setMyScoreReady({ idx, value: finalVal });
@@ -1372,11 +1398,10 @@ export function LiveMatch({
       })
     );
 
-    // Consume Edge Boost (one-shot).
-    if (boostArmedRef.current) {
-      update((prev) => ({ edgeBoosts: Math.max(0, prev.edgeBoosts - 1) }));
-      setBoostArmed(false);
-    }
+    // Edge Boosts are now consumed per-round at activation time, not
+    // here. Just clear the per-match activation set so a new match
+    // starts clean.
+    setBoostRounds(new Set());
 
     // Capture both faces RIGHT NOW while the WebRTC stream is still
     // alive — the deep-analysis flow on the result screen needs them.
@@ -1475,8 +1500,6 @@ export function LiveMatch({
           onJoin={(c) => startJoining(c)}
           value={enteredCode}
           setValue={setEnteredCode}
-          boostArmed={boostArmed}
-          setBoostArmed={setBoostArmed}
           ownedBoosts={user.edgeBoosts}
           autoRematch={autoRematch}
           setAutoRematch={setAutoRematch}
@@ -1550,6 +1573,10 @@ export function LiveMatch({
             // Treat as immediate 0-2 loss to the opponent.
             if (opponent) finalizeMatch(false, 0, 2);
           }}
+          onActivateBoost={activateBoostNow}
+          boostsOwned={user.edgeBoosts}
+          boostUsedThisRound={boostRounds.has(round)}
+          boostFlashId={boostFlashId}
         />
       )}
 
@@ -1573,8 +1600,6 @@ function Lobby({
   onJoin,
   value,
   setValue,
-  boostArmed,
-  setBoostArmed,
   ownedBoosts,
   autoRematch,
   setAutoRematch
@@ -1584,8 +1609,6 @@ function Lobby({
   onJoin: (code: string) => void;
   value: string;
   setValue: (v: string) => void;
-  boostArmed: boolean;
-  setBoostArmed: (b: boolean) => void;
   ownedBoosts: number;
   autoRematch: boolean;
   setAutoRematch: (v: boolean) => void;
@@ -1634,33 +1657,29 @@ function Lobby({
           </p>
         </div>
       )}
-      {/* Edge Boost arming */}
+      {/* Edge Boost inventory — activate IN-MATCH per round, not pre-armed */}
       <div className="glass flex items-center justify-between rounded-xl p-4">
         <div className="flex items-center gap-3">
           <span className="text-2xl">⚡</span>
           <div>
-            <p className="label-xs text-mog-pink">Edge Boost</p>
+            <p className="label-xs text-edge-coral">Edge Boost</p>
             <p className="text-xs text-white/60">
               {ownedBoosts > 0
-                ? `+10% to your scores this match. ${ownedBoosts} owned.`
+                ? `${ownedBoosts} owned · activate in-match for +10 to that round.`
                 : "Earn boosts on the Season Pass."}
             </p>
           </div>
         </div>
-        <button
-          onClick={() => ownedBoosts > 0 && setBoostArmed(!boostArmed)}
-          disabled={ownedBoosts === 0}
+        <span
           className={
-            "rounded-lg border px-4 py-2 text-[11px] uppercase tracking-[0.22em] transition " +
-            (boostArmed
-              ? "border-mog-pink bg-mog-pink/20 text-white"
-              : ownedBoosts > 0
-                ? "border-mog-pink/30 bg-mog-pink/5 text-mog-pink hover:border-mog-pink/60"
-                : "border-white/10 bg-white/[0.02] text-white/30")
+            "rounded-lg border px-3 py-2 stat-mono text-sm " +
+            (ownedBoosts > 0
+              ? "border-edge-coral/40 bg-edge-coral/10 text-edge-coral"
+              : "border-white/10 bg-white/[0.02] text-white/30")
           }
         >
-          {boostArmed ? "Armed ✓" : ownedBoosts > 0 ? "Arm Boost" : "Locked"}
-        </button>
+          ×{ownedBoosts}
+        </span>
       </div>
       {/* Featured: Random Match — full-width hero card */}
       <button
@@ -1902,7 +1921,11 @@ function Arena({
   onSendChat,
   localVideoAspect,
   remoteVideoAspect,
-  onForfeit
+  onForfeit,
+  onActivateBoost,
+  boostsOwned,
+  boostUsedThisRound,
+  boostFlashId
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -1927,6 +1950,10 @@ function Arena({
   localVideoAspect?: string;
   remoteVideoAspect?: string;
   onForfeit?: () => void;
+  onActivateBoost?: () => void;
+  boostsOwned?: number;
+  boostUsedThisRound?: boolean;
+  boostFlashId?: number;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -2007,21 +2034,24 @@ function Arena({
       {/* Mobile: stack vertically (each tile full-width landscape).
            Desktop: side-by-side with score badge between. */}
       <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr] md:gap-4">
-        <PlayerTile
-          videoRef={mineRef}
-          overlayRef={overlayRef}
-          mirror
-          name={user.username || "YOU"}
-          rankColor={myRank.color}
-          rankLabel={myRank.label}
-          rankEmoji={myRank.emoji}
-          score={phase === "scanning" || phase === "between" ? liveMine : null}
-          showScore={phase === "scanning" || phase === "between"}
-          isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
-          reactions={reactions.filter((r) => r.from === "me")}
-          blur={privacyBlur}
-          videoAspect={localVideoAspect}
-        />
+        <div className="relative">
+          <PlayerTile
+            videoRef={mineRef}
+            overlayRef={overlayRef}
+            mirror
+            name={user.username || "YOU"}
+            rankColor={myRank.color}
+            rankLabel={myRank.label}
+            rankEmoji={myRank.emoji}
+            score={phase === "scanning" || phase === "between" ? liveMine : null}
+            showScore={phase === "scanning" || phase === "between"}
+            isWinner={phase === "between" && lastRound ? lastRound.me > lastRound.opp : null}
+            reactions={reactions.filter((r) => r.from === "me")}
+            blur={privacyBlur}
+            videoAspect={localVideoAspect}
+          />
+          <BoostFlash trigger={boostFlashId || 0} />
+        </div>
 
         <div className="flex items-center justify-center gap-2 md:flex-col">
           <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black text-[10px] font-semibold tracking-[0.16em] text-white/70 md:h-16 md:w-16">
@@ -2070,6 +2100,10 @@ function Arena({
         setChatInput={setChatInput}
         onSendChat={onSendChat}
         onForfeit={onForfeit}
+        onActivateBoost={onActivateBoost}
+        boostsOwned={boostsOwned}
+        boostUsedThisRound={boostUsedThisRound}
+        scanning={phase === "scanning"}
       />
 
       {phase === "scanning" && (
@@ -2550,6 +2584,39 @@ function photoOnly(url: string | null | undefined): string | null {
 }
 
 /**
+ * Floating "+10" animation pinned over the score gauge area. Mounted
+ * unconditionally; renders nothing until the trigger increments.
+ * Each new trigger spawns a fresh AnimatePresence cycle.
+ */
+function BoostFlash({ trigger }: { trigger: number }) {
+  if (trigger <= 0) return null;
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={trigger}
+        initial={{ opacity: 0, y: 10, scale: 0.6 }}
+        animate={{
+          opacity: [0, 1, 1, 0],
+          y: [0, -40, -120, -180],
+          scale: [0.6, 1.4, 1.2, 1.0]
+        }}
+        transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+        className="pointer-events-none absolute right-3 top-3 z-40"
+      >
+        <span
+          className="stat-mono inline-flex items-center gap-1 rounded-xl border-2 border-edge-coral px-3 py-1.5 text-3xl font-black text-white shadow-glow-coral"
+          style={{
+            background: "linear-gradient(135deg, rgba(255,93,143,0.85), rgba(34,233,255,0.5))"
+          }}
+        >
+          ⚡ +10
+        </span>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/**
  * In-round score readout. Circular SVG progress ring with the value
  * tweened smoothly via local state. Replaces the old plain "SCORE 69"
  * label with something that reads as a HUD instrument.
@@ -2648,7 +2715,11 @@ function MobileToolbar({
   chatInput,
   setChatInput,
   onSendChat,
-  onForfeit
+  onForfeit,
+  onActivateBoost,
+  boostsOwned,
+  boostUsedThisRound,
+  scanning
 }: {
   micOn: boolean;
   onMicToggle: () => void;
@@ -2659,6 +2730,10 @@ function MobileToolbar({
   setChatInput: (v: string) => void;
   onSendChat: () => void;
   onForfeit?: () => void;
+  onActivateBoost?: () => void;
+  boostsOwned?: number;
+  boostUsedThisRound?: boolean;
+  scanning?: boolean;
 }) {
   const [chatOpen, setChatOpen] = useState(false);
   const unread = chatLog.filter((m) => m.from === "opp").length;
@@ -2706,6 +2781,23 @@ function MobileToolbar({
             </span>
           )}
         </button>
+        {onActivateBoost && scanning && (boostsOwned ?? 0) > 0 && !boostUsedThisRound && (
+          <button
+            onClick={onActivateBoost}
+            className="relative h-11 rounded-full border border-edge-coral/60 bg-edge-coral/15 px-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white shadow-glow-coral transition hover:border-edge-coral hover:bg-edge-coral/25 active:scale-95 sm:h-10"
+            title="Spend an Edge Boost — adds +10 to this round's score"
+          >
+            ⚡ Boost +10
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-edge-coral px-1 text-[9px] font-bold text-black">
+              {boostsOwned}
+            </span>
+          </button>
+        )}
+        {boostUsedThisRound && (
+          <span className="inline-flex h-11 items-center gap-1 rounded-full border border-edge-coral/30 bg-edge-coral/[0.06] px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-coral sm:h-10">
+            ⚡ Boost armed
+          </span>
+        )}
         {onForfeit && (
           <button
             onClick={() => {

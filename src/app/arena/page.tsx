@@ -123,7 +123,11 @@ function ArenaPageInner() {
   const [mode, setMode] = useState<Mode>(inviteCode.length === 6 ? "live" : "select");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [searchBand, setSearchBand] = useState(100);
-  const [boostActive, setBoostActive] = useState(false);
+  // Per-round boost activations — set of round indices where the user
+  // activated an Edge Boost. Each consumes one boost from inventory
+  // and adds +10 to that round's score.
+  const [boostRounds, setBoostRounds] = useState<Set<number>>(new Set());
+  const [boostFlashId, setBoostFlashId] = useState(0);
   const [practiceMode, setPracticeMode] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>("bo3");
   const [armedPowerUps, setArmedPowerUps] = useState<Set<PowerUpId>>(new Set());
@@ -157,6 +161,7 @@ function ArenaPageInner() {
     setRound(0);
     setScores([]);
     setMatchResult(null);
+    setBoostRounds(new Set());
 
     // Widen band every 1.2s, then "find" opponent at ~3s.
     let band = 100;
@@ -206,7 +211,7 @@ function ArenaPageInner() {
     const k = criteria[round].key;
     let me = Math.round(scoreFor(user.edgeScore, k));
     const opp = Math.round(scoreFor(oppBreakdown, k));
-    if (boostActive) me = Math.min(100, Math.round(me * 1.1));
+    if (boostRounds.has(round)) me = Math.min(100, me + 10);
     const next = [...scores, { me, opp }];
     setScores(next);
 
@@ -266,11 +271,9 @@ function ArenaPageInner() {
       })
     );
 
-    // Consume the activated edge boost (if any) — one-shot.
-    if (boostActive) {
-      update((prev) => ({ edgeBoosts: Math.max(0, prev.edgeBoosts - 1) }));
-      setBoostActive(false);
-    }
+    // Boosts are consumed per-round at activation time, not here.
+    // Just clear the per-match activation set.
+    setBoostRounds(new Set());
 
     setMatchResult({ won, delta, rounds });
     setPhase("result");
@@ -362,8 +365,6 @@ function ArenaPageInner() {
             <Lobby
               key="lobby"
               onStart={startSearch}
-              boostActive={boostActive}
-              setBoostActive={setBoostActive}
               practiceMode={practiceMode}
               setPracticeMode={setPracticeMode}
               gameMode={gameMode}
@@ -383,18 +384,42 @@ function ArenaPageInner() {
           {(phase === "round" || phase === "between-rounds") && opponent && oppBreakdown && (() => {
             const criteria = getCriteria(gameMode);
             const cur = criteria[round];
+            const baseMy = Math.round(scoreFor(user.edgeScore!, cur.key));
+            const myScore = boostRounds.has(round)
+              ? Math.min(100, baseMy + 10)
+              : baseMy;
             return (
               <Round
                 key={`r${round}-${phase}`}
                 round={round}
                 criterion={cur}
-                myScore={Math.round(scoreFor(user.edgeScore!, cur.key))}
+                myScore={myScore}
                 oppScore={Math.round(scoreFor(oppBreakdown, cur.key))}
                 opponent={opponent}
                 waiting={phase === "between-rounds"}
                 priorScores={scores}
                 totalRounds={totalRounds(gameMode)}
                 onComplete={evalRound}
+                boostUsedThisRound={boostRounds.has(round)}
+                boostsOwned={user.edgeBoosts}
+                boostFlashId={boostFlashId}
+                onActivateBoost={() => {
+                  if (boostRounds.has(round)) return;
+                  if (user.edgeBoosts <= 0) return;
+                  setBoostRounds((prev) => {
+                    const next = new Set(prev);
+                    next.add(round);
+                    return next;
+                  });
+                  update((prev) => ({
+                    edgeBoosts: Math.max(0, prev.edgeBoosts - 1),
+                    lifetime: {
+                      ...prev.lifetime,
+                      totalBoostsUsed: prev.lifetime.totalBoostsUsed + 1
+                    }
+                  }));
+                  setBoostFlashId((n) => n + 1);
+                }}
               />
             );
           })()}
@@ -467,8 +492,6 @@ function ModeSelect({ onPick }: { onPick: (m: Mode) => void }) {
 
 function Lobby({
   onStart,
-  boostActive,
-  setBoostActive,
   practiceMode,
   setPracticeMode,
   gameMode,
@@ -479,8 +502,6 @@ function Lobby({
   setWager
 }: {
   onStart: () => void;
-  boostActive: boolean;
-  setBoostActive: (b: boolean) => void;
   practiceMode: boolean;
   setPracticeMode: (b: boolean) => void;
   gameMode: GameMode;
@@ -570,39 +591,51 @@ function Lobby({
         ))}
       </div>
 
-      {/* Power-up arming — with "Smart pick" highlight on the suggested one */}
+      {/* Power-up inventory — Edge Boost is now activated in-match
+          per round (button appears during scanning). Other power-ups
+          can still be armed pre-match. */}
       <div className="mx-auto mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
         {powerUpInventory.map(({ id, count }) => {
           const meta = POWERUP_META[id];
-          const armed =
-            id === "boost" ? boostActive : armedPowerUps.has(id);
-          const ownedHandled = id === "boost" ? user.edgeBoosts > 0 : count > 0;
+          const isBoost = id === "boost";
+          const armed = !isBoost && armedPowerUps.has(id);
+          const ownedHandled = isBoost ? user.edgeBoosts > 0 : count > 0;
           const isSmart = recommended === id && ownedHandled && !armed;
           return (
             <button
               key={id}
               onClick={() => {
-                if (!ownedHandled) return;
-                if (id === "boost") setBoostActive(!boostActive);
-                else togglePowerUp(id);
+                if (!ownedHandled || isBoost) return;
+                togglePowerUp(id);
               }}
-              disabled={!ownedHandled}
-              title={meta.description}
+              disabled={!ownedHandled || isBoost}
+              title={
+                isBoost
+                  ? `${meta.description}\n\nActivate during a round to apply +10 to that round only.`
+                  : meta.description
+              }
               className={
                 "relative flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] transition " +
                 (armed
                   ? "border-edge-cyan bg-edge-cyan/20 text-white"
-                  : ownedHandled
-                    ? isSmart
-                      ? "border-edge-coral/60 bg-edge-coral/10 text-edge-coral hover:border-edge-coral"
-                      : "border-edge-cyan/30 bg-edge-cyan/5 text-edge-cyan hover:border-edge-cyan/60"
-                    : "border-white/10 bg-white/[0.02] text-white/30")
+                  : isBoost && ownedHandled
+                    ? "border-edge-coral/30 bg-edge-coral/[0.06] text-edge-coral"
+                    : ownedHandled
+                      ? isSmart
+                        ? "border-edge-coral/60 bg-edge-coral/10 text-edge-coral hover:border-edge-coral"
+                        : "border-edge-cyan/30 bg-edge-cyan/5 text-edge-cyan hover:border-edge-cyan/60"
+                      : "border-white/10 bg-white/[0.02] text-white/30")
               }
             >
               <span className="text-base">{meta.emoji}</span>
               <span>{meta.name}</span>
               <span className="opacity-60">×{count}</span>
-              {isSmart && (
+              {isBoost && ownedHandled && (
+                <span className="text-[8px] tracking-[0.2em] text-white/55">
+                  · in-match
+                </span>
+              )}
+              {isSmart && !isBoost && (
                 <span className="absolute -right-1 -top-1 rounded-full bg-edge-coral px-1.5 py-0.5 text-[7px] font-bold tracking-[0.18em] text-black">
                   PICK
                 </span>
@@ -833,7 +866,11 @@ function Round({
   waiting,
   priorScores,
   totalRounds,
-  onComplete
+  onComplete,
+  onActivateBoost,
+  boostsOwned,
+  boostUsedThisRound,
+  boostFlashId
 }: {
   round: number;
   criterion: { key: CriterionKey; label: string };
@@ -844,6 +881,10 @@ function Round({
   priorScores: { me: number; opp: number }[];
   totalRounds: number;
   onComplete: () => void;
+  onActivateBoost?: () => void;
+  boostsOwned?: number;
+  boostUsedThisRound?: boolean;
+  boostFlashId?: number;
 }) {
   const { user } = useUser();
   const [reveal, setReveal] = useState(false);
@@ -880,13 +921,37 @@ function Round({
         <h2 className="heading-card mt-1 text-2xl">{criterion.label}</h2>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8">
+      {/* Per-round Edge Boost activation */}
+      {!waiting && !reveal && onActivateBoost && (boostsOwned ?? 0) > 0 && !boostUsedThisRound && (
+        <div className="flex justify-center">
+          <button
+            onClick={onActivateBoost}
+            className="relative inline-flex items-center gap-2 rounded-xl border border-edge-coral/60 bg-edge-coral/15 px-5 py-2.5 text-[12px] font-bold uppercase tracking-[0.22em] text-white shadow-glow-coral transition hover:border-edge-coral hover:bg-edge-coral/25 active:scale-95"
+          >
+            ⚡ Activate Boost · +10 this round
+            <span className="rounded-full bg-edge-coral px-1.5 py-0.5 text-[9px] text-black">
+              ×{boostsOwned}
+            </span>
+          </button>
+        </div>
+      )}
+      {boostUsedThisRound && (
+        <div className="flex justify-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-edge-coral/30 bg-edge-coral/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-coral">
+            ⚡ Boost active · +10
+          </span>
+        </div>
+      )}
+
+      <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8">
         <ScoreBar
           side="left"
           name={user.username!}
           score={reveal ? myScore : 0}
           target={myScore}
         />
+        {/* Floating "+10" pinned over the player's side. */}
+        <BoostFlashQuick trigger={boostFlashId || 0} />
         <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black text-[10px] font-semibold tracking-[0.18em] text-white/60">
           {wins.me}–{wins.opp}
         </div>
@@ -1096,5 +1161,39 @@ function Result({
         </Link>
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * Floating "+10" splash for Quick Match's center column. Mounted
+ * unconditionally; renders nothing until trigger increments.
+ */
+function BoostFlashQuick({ trigger }: { trigger: number }) {
+  if (trigger <= 0) return null;
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={trigger}
+        initial={{ opacity: 0, y: 0, scale: 0.6 }}
+        animate={{
+          opacity: [0, 1, 1, 0],
+          y: [0, -40, -120, -180],
+          scale: [0.6, 1.5, 1.2, 1.0]
+        }}
+        transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+        className="pointer-events-none absolute left-[33%] top-1/2 z-40 -translate-x-1/2"
+      >
+        <span
+          className="inline-flex items-center gap-1 rounded-xl border-2 border-edge-coral px-3 py-1.5 text-3xl font-black text-white shadow-glow-coral"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(255,93,143,0.85), rgba(34,233,255,0.5))",
+            fontFamily: "var(--font-mono)"
+          }}
+        >
+          ⚡ +10
+        </span>
+      </motion.div>
+    </AnimatePresence>
   );
 }
