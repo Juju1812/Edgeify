@@ -1993,7 +1993,15 @@ function PlayerTile(props: {
   /** Source video's natural aspect ratio (e.g. "16 / 9") so the
    *  visible tile and AR overlay stay aligned across cameras. */
   videoAspect?: string;
+  /** Whether to mute this tile's audio. The local tile MUST be muted
+   *  (otherwise we hear our own echo); the remote tile MUST NOT be
+   *  muted (otherwise the opponent's mic plays into a muted element
+   *  and we never hear them). Defaults to `mirror` so the current
+   *  call-sites — local=mirror+muted, remote=neither — work without
+   *  explicit prop. */
+  mutedAudio?: boolean;
 }) {
+  const muted = props.mutedAudio ?? !!props.mirror;
   const ringColor =
     props.isWinner === true
       ? "border-emerald-400/70"
@@ -2011,7 +2019,7 @@ function PlayerTile(props: {
         <video
           ref={props.videoRef}
           playsInline
-          muted
+          muted={muted}
           autoPlay
           style={
             props.blur
