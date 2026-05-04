@@ -166,7 +166,17 @@ export default function ClansPage() {
           </div>
         </div>
       ) : (
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <>
+          <div className="mt-6 rounded-2xl border border-edge-coral/20 bg-edge-coral/[0.03] px-5 py-4">
+            <p className="label-xs text-edge-coral">No crew yet</p>
+            <p className="mt-2 text-sm text-white/65">
+              Clans are tiny — up to 8 members. Start one and share the
+              join code with friends, or paste a code below to drop into
+              theirs. Tag shows next to your name on every leaderboard
+              row.
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
           {/* Create */}
           <form
             onSubmit={handleCreate}
@@ -246,7 +256,8 @@ export default function ClansPage() {
               </p>
             </div>
           </form>
-        </div>
+          </div>
+        </>
       )}
 
       <Footer />

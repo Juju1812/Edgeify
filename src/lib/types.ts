@@ -149,6 +149,9 @@ export type UserState = {
   // ─── Onboarding ─────────────────────────────────────────────
   tutorialCompleted: boolean;
   changelogSeenVersion: string;
+  /** True once we've auto-fired the post-first-match Deep Analysis as a
+   *  Pro-value teaser. Counts toward the user's monthly free quota. */
+  autoAnalysisFired: boolean;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -207,7 +210,8 @@ export const DEFAULT_USER: UserState = {
     peakEloEver: 0
   },
   tutorialCompleted: false,
-  changelogSeenVersion: ""
+  changelogSeenVersion: "",
+  autoAnalysisFired: false
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";

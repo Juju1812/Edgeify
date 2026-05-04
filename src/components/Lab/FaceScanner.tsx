@@ -495,6 +495,7 @@ export function FaceScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const captureRef = useRef<HTMLCanvasElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const qualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const faceApiRef = useRef<FaceApiNS | null>(null);
   // Tracks which detector loaded successfully — SSD-Mobilenet gives
@@ -690,6 +691,95 @@ export function FaceScanner({
       setPhase("done");
       onComplete({ score: syntheticScore(), faceDataUrl: silhouetteDataUrl() });
     }, 700);
+  }
+
+  /**
+   * Mobile / no-camera fallback: user picks an image from their gallery
+   * and we run face-api on the still. Uses the same EdgeScore pipeline
+   * as the live scan, but on a single frame (no quality-weighted
+   * consensus, no liveness check). If no face is detected, surfaces an
+   * error so they can pick a different photo.
+   */
+  async function runImageScan(file: File) {
+    setError(null);
+    setPhase("loading-models");
+    try {
+      const faceapi =
+        faceApiRef.current || ((await import("face-api.js")) as FaceApiNS);
+      if (!faceApiRef.current) {
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+        ]);
+        faceApiRef.current = faceapi;
+        detectorRef.current = "tiny";
+      }
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = () => reject(new Error("Couldn't read image."));
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error("Image failed to load."));
+        i.src = dataUrl;
+      });
+
+      setPhase("computing");
+      const detections = await faceapi
+        .detectAllFaces(
+          img,
+          new faceapi.TinyFaceDetectorOptions({
+            inputSize: 416,
+            scoreThreshold: 0.5
+          })
+        )
+        .withFaceLandmarks();
+      if (detections.length === 0) {
+        throw new Error(
+          "No face detected. Try a clearer photo with your face front-and-center."
+        );
+      }
+      const sorted = [...detections].sort(
+        (a, b) =>
+          b.detection.box.width * b.detection.box.height -
+          a.detection.box.width * a.detection.box.height
+      );
+      const det = sorted[0];
+      const points = det.landmarks.positions.map((p) => ({
+        x: p.x,
+        y: p.y
+      })) as Pt[];
+      const score = computeEdgeScore(points);
+
+      // Render a 200x150 cropped face thumbnail for share cards.
+      const box = det.detection.box;
+      const padX = box.width * 0.18;
+      const padY = box.height * 0.22;
+      const sx = Math.max(0, box.x - padX);
+      const sy = Math.max(0, box.y - padY);
+      const sw = Math.min(img.width - sx, box.width + padX * 2);
+      const sh = Math.min(img.height - sy, box.height + padY * 2);
+      const cap = captureRef.current!;
+      cap.width = 200;
+      cap.height = 150;
+      const cctx = cap.getContext("2d")!;
+      cctx.drawImage(img, sx, sy, sw, sh, 0, 0, 200, 150);
+      const faceDataUrl = cap.toDataURL("image/jpeg", 0.8);
+
+      setPhase("done");
+      onComplete({ score, faceDataUrl });
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      setError(
+        err?.message ||
+          "Couldn't analyse that photo. Try a different one with a clearly-visible face."
+      );
+      setPhase("error");
+    }
   }
 
   useEffect(() => stopCamera, []);
@@ -1078,12 +1168,14 @@ export function FaceScanner({
 
         {phase === "idle" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 text-center">
-            <p className="label-xs text-white/60">Webcam-only · Local capture</p>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-500/[0.06] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.32em] text-emerald-300">
+              🔒 Photos never stored · Geometry-only
+            </span>
             <h3 className="heading-card text-2xl">Calibrate your EdgeScore</h3>
-            <p className="max-w-sm px-6 text-xs leading-relaxed text-white/50">
-              We&apos;ll use your camera to capture a few frames, detect facial
-              landmarks, and compute a geometric score. Nothing leaves your
-              device unless you save the result.
+            <p className="max-w-sm px-6 text-xs leading-relaxed text-white/55">
+              Face landmarks are detected on your device. We compute a
+              score and discard the frames — no photos leave your browser
+              unless you choose to share the score card.
             </p>
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
               <button
@@ -1093,13 +1185,31 @@ export function FaceScanner({
                 Allow Camera →
               </button>
               <button
+                onClick={() => photoInputRef.current?.click()}
+                className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.08] px-5 py-3 text-[11px] uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/60 hover:bg-edge-cyan/[0.14]"
+                title="Use a photo from your phone instead of the camera"
+              >
+                Upload a photo
+              </button>
+              <button
                 onClick={takeDemoPath}
                 className="rounded-lg border border-white/10 bg-white/[0.02] px-5 py-3 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
                 title="Skip camera and generate a plausible score"
               >
-                No camera? Demo mode
+                Demo mode
               </button>
             </div>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) runImageScan(f);
+                e.currentTarget.value = "";
+              }}
+            />
           </div>
         )}
 
@@ -1156,7 +1266,13 @@ export function FaceScanner({
                 onClick={start}
                 className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-white/10"
               >
-                Retry
+                Retry camera
+              </button>
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.08] px-4 py-2 text-xs uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/60 hover:bg-edge-cyan/[0.14]"
+              >
+                Upload a photo →
               </button>
               <button
                 onClick={takeDemoPath}

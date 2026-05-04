@@ -2846,15 +2846,31 @@ function Result({
 
       {/* AI deep-analysis surface — only renders when both face snapshots
           were captured at match end. SVG silhouettes (demo mode) get
-          filtered out so we don't ship a non-photo to the analyzer. */}
-      <DeepAnalysis
-        myFace={photoOnly(result.myFaceDataUrl) || photoOnly(user.faceDataUrl)}
-        oppFace={photoOnly(result.oppFaceDataUrl)}
-        myName={user.username || "Player A"}
-        oppName={opponent.username}
-        myScore={result.myWins}
-        oppScore={result.oppWins}
-      />
+          filtered out so we don't ship a non-photo to the analyzer.
+          Auto-fires once per account on the user's first real (non-demo)
+          match as a Pro-value teaser. */}
+      {(() => {
+        const myFace =
+          photoOnly(result.myFaceDataUrl) || photoOnly(user.faceDataUrl);
+        const oppFace = photoOnly(result.oppFaceDataUrl);
+        const autoFire =
+          !!myFace &&
+          !!oppFace &&
+          !!user.username &&
+          !user.autoAnalysisFired;
+        return (
+          <DeepAnalysis
+            myFace={myFace}
+            oppFace={oppFace}
+            myName={user.username || "Player A"}
+            oppName={opponent.username}
+            myScore={result.myWins}
+            oppScore={result.oppWins}
+            autoFire={autoFire}
+            onAutoFired={() => update({ autoAnalysisFired: true })}
+          />
+        );
+      })()}
     </motion.div>
   );
 }

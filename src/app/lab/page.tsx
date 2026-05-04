@@ -53,9 +53,21 @@ export default function LabPage() {
         <p className="label-xs">The Lab</p>
         <h1 className="heading-card mt-2 text-3xl">Solo Calibration</h1>
         <p className="mt-2 max-w-xl text-sm text-white/50">
-          Webcam-only capture. Face landmarks are detected on your device — only
-          the resulting score is saved.
+          Camera or photo upload. Face landmarks are detected on your
+          device — we keep the geometric score, never the photo. Nothing
+          is uploaded unless you tap Share.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.22em] text-white/45">
+          <span className="rounded-full border border-emerald-400/25 bg-emerald-500/[0.04] px-2.5 py-1">
+            🔒 On-device detection
+          </span>
+          <span className="rounded-full border border-emerald-400/25 bg-emerald-500/[0.04] px-2.5 py-1">
+            📸 Photos not stored
+          </span>
+          <span className="rounded-full border border-emerald-400/25 bg-emerald-500/[0.04] px-2.5 py-1">
+            📐 Geometry-only score
+          </span>
+        </div>
       </div>
 
       {!ready ? (

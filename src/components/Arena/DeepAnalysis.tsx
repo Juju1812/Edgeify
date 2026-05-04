@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 type Props = {
@@ -10,6 +10,12 @@ type Props = {
   oppName: string;
   myScore: number;
   oppScore: number;
+  /** When true, automatically generates the analysis on mount (once)
+   *  and opens the panel. Used post-first-match to surface Pro value. */
+  autoFire?: boolean;
+  /** Fires when an auto-fire actually kicks off (so the parent can
+   *  flip a one-time flag on the user). */
+  onAutoFired?: () => void;
 };
 
 /**
@@ -26,7 +32,9 @@ export function DeepAnalysis({
   myName,
   oppName,
   myScore,
-  oppScore
+  oppScore,
+  autoFire = false,
+  onAutoFired
 }: Props) {
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -35,6 +43,22 @@ export function DeepAnalysis({
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [open, setOpen] = useState(false);
+  const autoFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      autoFire &&
+      !autoFiredRef.current &&
+      myFace &&
+      oppFace &&
+      state.kind === "idle"
+    ) {
+      autoFiredRef.current = true;
+      onAutoFired?.();
+      generate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFire, myFace, oppFace]);
 
   if (!myFace || !oppFace) return null;
 

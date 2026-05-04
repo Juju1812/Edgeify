@@ -142,11 +142,12 @@ export default function DiscoverPage() {
               <div>
                 <p className="text-5xl">🌑</p>
                 <h2 className="heading-display mt-3 text-2xl">
-                  No more cards
+                  You&apos;re caught up
                 </h2>
                 <p className="mx-auto mt-2 max-w-sm text-sm text-white/55">
-                  You&apos;ve been through every active ranked player.
-                  Check back tomorrow.
+                  You&apos;ve seen every ranked player online right now.
+                  New cards drop in as players come online — refresh
+                  later, or invite a friend to fill the queue.
                 </p>
                 <button
                   onClick={() => {
