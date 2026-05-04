@@ -340,6 +340,9 @@ export function LiveMatch({
     height: number;
   } | null>(null);
   const lastDrawnAtRef = useRef(0);
+  // Guard so finalizeMatch only commits once per match (the timeout
+  // and the inbound "result" message can both fire it).
+  const matchFinalizedRef = useRef(false);
 
   // Canvas for the AR overlay on the local video tile during scanning.
   const localOverlayElRef = useRef<HTMLCanvasElement | null>(null);
@@ -522,6 +525,7 @@ export function LiveMatch({
     setCopied(false);
     setError(null);
     lastResolvedRoundRef.current = -1;
+    matchFinalizedRef.current = false;
     if (transitionTimeoutRef.current) {
       window.clearTimeout(transitionTimeoutRef.current);
       transitionTimeoutRef.current = null;
@@ -1266,17 +1270,23 @@ export function LiveMatch({
 
     transitionTimeoutRef.current = window.setTimeout(() => {
       transitionTimeoutRef.current = null;
-      if (wins.me >= 2 || wins.opp >= 2 || next.length === 3) {
+      const matchOver = wins.me >= 2 || wins.opp >= 2 || next.length === 3;
+      if (matchOver) {
+        const won = wins.me >= wins.opp;
+        // BOTH sides finalize locally from the visible scoreboard. Host
+        // also broadcasts the verdict so older clients stay in sync,
+        // but neither side waits on the message — which prevents the
+        // guest from getting stuck on "between" if the result message
+        // is dropped or delayed by the data channel.
         if (isHostRef.current) {
-          const won = wins.me >= wins.opp;
           sendMsg({
             type: "result",
             winner: won ? "host" : "guest",
             myWins: wins.me,
             oppWins: wins.opp
           });
-          finalizeMatch(won, wins.me, wins.opp);
         }
+        finalizeMatch(won, wins.me, wins.opp);
       } else {
         if (isHostRef.current) {
           beginRound(round + 1);
@@ -1288,6 +1298,11 @@ export function LiveMatch({
 
   function finalizeMatch(won: boolean, myWins: number, oppWins: number) {
     if (!opponent) return;
+    // Idempotent guard — both the local round-end timeout and the
+    // inbound "result" message can race here. We only want to commit
+    // the match record + ELO delta once.
+    if (matchFinalizedRef.current) return;
+    matchFinalizedRef.current = true;
     const isPlacement = user.placementsLeft > 0;
     const delta = eloDelta(user.elo, opponent.elo, won ? 1 : 0, isPlacement);
 
