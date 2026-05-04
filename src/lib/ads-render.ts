@@ -96,7 +96,7 @@ export function drawFooterURL(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  url = "EDGIFY.APP"
+  url = "EDGIFY.CC"
 ) {
   ctx.save();
   ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
@@ -349,7 +349,7 @@ function drawRankTemplate(
   ctx.font = `600 ${Math.round(w * 0.022)}px ui-monospace, "JetBrains Mono", monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("EDGIFY.APP", w * 0.10, h * 0.90);
+  ctx.fillText("EDGIFY.CC", w * 0.10, h * 0.90);
   ctx.restore();
 }
 
@@ -428,7 +428,7 @@ function drawFeaturesTemplate(
   ctx.font = `600 ${Math.round(w * 0.022)}px ui-monospace, "JetBrains Mono", monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("EDGIFY.APP", w * 0.10, h * 0.90);
+  ctx.fillText("EDGIFY.CC", w * 0.10, h * 0.90);
   ctx.restore();
 }
 
@@ -525,7 +525,7 @@ function drawComparisonTemplate(
   ctx.font = `900 ${Math.round(pillH * 0.46)}px Inter, ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("EDGIFY.APP →", w / 2, pillY + pillH / 2);
+  ctx.fillText("EDGIFY.CC →", w / 2, pillY + pillH / 2);
   ctx.restore();
 }
 
@@ -574,7 +574,7 @@ function drawBannerTemplate(
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.font = `600 ${Math.round(w * 0.018)}px ui-monospace, "JetBrains Mono", monospace`;
   ctx.textAlign = "left";
-  ctx.fillText("EDGIFY.APP", w * 0.06, h * 0.88);
+  ctx.fillText("EDGIFY.CC", w * 0.06, h * 0.88);
   ctx.restore();
 }
 

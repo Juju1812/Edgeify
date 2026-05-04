@@ -139,7 +139,7 @@ function drawHookPunch(
     ctx.font = `900 ${Math.round(pillH * 0.46)}px Inter, ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("EDGIFY.APP →", w / 2, pillY + pillH / 2);
+    ctx.fillText("EDGIFY.CC →", w / 2, pillY + pillH / 2);
     ctx.restore();
   }
 }
@@ -263,7 +263,7 @@ function drawRankClimb(
 }
 
 // ─── Template 3: BRAND STINGER ─────────────────────────────────────
-// 4s. Hex mark draws itself, wordmark types in, sub-tagline pops, edgify.app fades.
+// 4s. Hex mark draws itself, wordmark types in, sub-tagline pops, edgify.cc fades.
 function drawBrandStinger(
   ctx: CanvasRenderingContext2D,
   t: number,
@@ -456,7 +456,7 @@ function drawFeatureCascade(
     ctx.font = `900 ${Math.round(pillH * 0.45)}px Inter, ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("EDGIFY.APP  →", w / 2, pillY + pillH / 2);
+    ctx.fillText("EDGIFY.CC  →", w / 2, pillY + pillH / 2);
     ctx.restore();
   }
 }
@@ -559,7 +559,7 @@ function drawComparisonSlam(
     ctx.font = `900 ${Math.round(pillH * 0.45)}px Inter, ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("EDGIFY.APP  →", w / 2, pillY + pillH / 2);
+    ctx.fillText("EDGIFY.CC  →", w / 2, pillY + pillH / 2);
     ctx.restore();
   }
 }

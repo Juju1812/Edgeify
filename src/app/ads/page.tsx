@@ -31,19 +31,19 @@ const CAPTIONS: Record<
 > = {
   tiktok: {
     label: "TikTok caption",
-    text: `live 1v1 face-offs scored by AI 🥀\n\nclimb the ranked ladder. real opponents, no bots.\n\n→ edgify.app\n\n#lookmaxx #mogging #faceoff #rateme #ranked`
+    text: `live 1v1 face-offs scored by AI 🥀\n\nclimb the ranked ladder. real opponents, no bots.\n\n→ edgify.cc\n\n#lookmaxx #mogging #faceoff #rateme #ranked`
   },
   instagram: {
     label: "Instagram caption",
-    text: `face-offs but ranked. live opponents, AI scoring, ELO ladder.\n\nedgify.app\n\n#lookmaxxing #1v1 #facerating`
+    text: `face-offs but ranked. live opponents, AI scoring, ELO ladder.\n\nedgify.cc\n\n#lookmaxxing #1v1 #facerating`
   },
   reddit: {
     label: "Reddit post",
-    text: `Title: Built a 1v1 face-off platform with AI scoring and ELO matchmaking\n\nBody: Tried to build the looksmaxxing version of chess.com. AR face scanning, real-time matches against random opponents in your ELO band, geometric scoring on 6 metrics (symmetry, jawline, etc), seasonal ranked ladder. Free, no account required.\n\nedgify.app — would love feedback.`
+    text: `Title: Built a 1v1 face-off platform with AI scoring and ELO matchmaking\n\nBody: Tried to build the looksmaxxing version of chess.com. AR face scanning, real-time matches against random opponents in your ELO band, geometric scoring on 6 metrics (symmetry, jawline, etc), seasonal ranked ladder. Free, no account required.\n\nedgify.cc — would love feedback.`
   },
   twitter: {
     label: "X / Twitter post",
-    text: `Edgify — live 1v1 face-offs.\n\nReal opponents, no bots. AI scores both faces in real time and ranks you on a competitive ELO ladder.\n\nNo account needed.\n\n→ edgify.app`
+    text: `Edgify — live 1v1 face-offs.\n\nReal opponents, no bots. AI scores both faces in real time and ranks you on a competitive ELO ladder.\n\nNo account needed.\n\n→ edgify.cc`
   }
 };
 
@@ -186,7 +186,7 @@ export default function AdsPage() {
         await navigator.share({
           files: [file],
           title: "Edgify",
-          text: "Live 1v1 face-offs at edgify.app"
+          text: "Live 1v1 face-offs at edgify.cc"
         });
       }
     } catch {

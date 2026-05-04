@@ -165,7 +165,7 @@ function Stat({
  * players show their phone to quickly share their rank card.
  */
 async function ProfileQR({ username }: { username: string }) {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://edgify.app";
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://edgify.cc";
   const url = `${base}/u/${encodeURIComponent(username)}`;
   let svg = "";
   try {
