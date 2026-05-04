@@ -102,15 +102,22 @@ export function FirstScanShare({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
+        className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-6 sm:items-center"
       >
-        <div className="absolute inset-0 bg-black/85 backdrop-blur-md" />
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md" onClick={onClose} />
         <motion.div
           initial={{ y: 20, opacity: 0, scale: 0.97 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 20, opacity: 0, scale: 0.97 }}
-          className="relative z-10 w-full max-w-sm"
+          className="relative z-10 my-auto w-full max-w-sm"
         >
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute -right-1 -top-1 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/70 text-lg text-white/75 backdrop-blur transition hover:border-white/40 hover:text-white"
+          >
+            ×
+          </button>
           <div className="mb-4 text-center">
             <p className="label-xs text-edge-coral">First scan complete</p>
             <h2 className="heading-display mt-1 text-3xl">
@@ -155,9 +162,9 @@ export function FirstScanShare({
             </button>
             <button
               onClick={onClose}
-              className="text-[11px] uppercase tracking-[0.32em] text-white/35 hover:text-white/65"
+              className="text-[11px] uppercase tracking-[0.32em] text-white/45 hover:text-white/80"
             >
-              Skip
+              ← Back to lobby
             </button>
           </div>
         </motion.div>
