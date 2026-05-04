@@ -90,7 +90,7 @@ export function FeaturedArenaCard({
         }}
       />
 
-      <div className="relative z-20 flex flex-col gap-7 p-7 sm:flex-row sm:items-center sm:gap-10 sm:p-10">
+      <div className="pointer-events-none relative z-20 flex flex-col gap-7 p-7 sm:flex-row sm:items-center sm:gap-10 sm:p-10">
         {/* Left half: title + status */}
         <div className="flex-1 space-y-4">
           <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export function FeaturedArenaCard({
           ) : cta.kind === "guest" ? (
             <button
               onClick={cta.onClick}
-              className="group/btn relative z-30 inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl border border-edge-cyan/60 bg-edge-cyan/15 px-7 py-4 text-sm font-bold uppercase tracking-[0.22em] text-white shadow-glow transition hover:border-edge-cyan hover:bg-edge-cyan/25"
+              className="group/btn pointer-events-auto relative z-30 inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl border border-edge-cyan/60 bg-edge-cyan/15 px-7 py-4 text-sm font-bold uppercase tracking-[0.22em] text-white shadow-glow transition hover:border-edge-cyan hover:bg-edge-cyan/25"
             >
               <SwordsIcon className="h-5 w-5" />
               <span>{cta.label}</span>
