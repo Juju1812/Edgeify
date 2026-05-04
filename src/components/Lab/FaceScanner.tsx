@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   computeEdgeScore,
-  consensusLandmarks,
+  consensusLandmarksWeighted,
   estimatePose,
   eyeAspectRatio,
+  frameQuality,
   getEyePoints,
-  trimmedMean,
+  meanLumaAt,
+  sharpnessAt,
   type FacePose,
   type Pt
 } from "@/lib/edge-score";
@@ -24,6 +26,10 @@ const AR_COLOR_HEX_LAB: Record<ArColorId, string> = {
 };
 
 type FaceApiNS = typeof import("face-api.js");
+
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
+}
 
 const MODEL_URL =
   "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
@@ -126,7 +132,12 @@ async function getCameraStream(): Promise<MediaStream> {
   throw lastErr;
 }
 
-const TARGET_SAMPLES = 50;
+// More samples = lower variance in the consensus face. We trim 15%
+// outliers per axis, so only ~70% of these survive into the final
+// score. Empirically 80 samples gets the average composite within
+// ±1 point of the limit-of-many-samples value on a stable feed.
+const TARGET_SAMPLES = 80;
+const MIN_SAMPLES_FOR_FINALIZE = 30;
 
 // ─── AR overlay helpers ──────────────────────────────────────────────────
 
@@ -451,33 +462,6 @@ function degStr(canthalTiltNorm: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}°`;
 }
 
-function trimmedAverage(samples: EdgeScoreBreakdown[]): EdgeScoreBreakdown {
-  if (samples.length === 0)
-    return {
-      symmetry: 0,
-      jawlineDefinition: 0,
-      canthalTilt: 0,
-      cheekboneProm: 0,
-      goldenRatio: 0,
-      faceFat: 0,
-      composite: 0
-    };
-  const trim = (key: keyof EdgeScoreBreakdown) =>
-    trimmedMean(
-      samples.map((s) => s[key] as number),
-      0.15
-    );
-  return {
-    symmetry: trim("symmetry"),
-    jawlineDefinition: trim("jawlineDefinition"),
-    canthalTilt: trim("canthalTilt"),
-    cheekboneProm: trim("cheekboneProm"),
-    goldenRatio: trim("goldenRatio"),
-    faceFat: trim("faceFat"),
-    composite: trim("composite")
-  };
-}
-
 function humanizeCameraError(e: unknown): string {
   const err = e as { name?: string; message?: string } | undefined;
   switch (err?.name) {
@@ -510,15 +494,24 @@ export function FaceScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const captureRef = useRef<HTMLCanvasElement>(null);
+  const qualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const faceApiRef = useRef<FaceApiNS | null>(null);
+  // Tracks which detector loaded successfully — SSD-Mobilenet gives
+  // significantly more accurate landmark localization but its weights
+  // are ~10MB so we fall back to TinyFaceDetector if it fails to load.
+  const detectorRef = useRef<"ssd" | "tiny">("tiny");
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const blinksRef = useRef(0);
-  const samplesRef = useRef<EdgeScoreBreakdown[]>([]);
   // Accumulated raw landmarks from every good-pose frame. The final
-  // saved score is computed from a trimmed-mean consensus of these
-  // — much more stable than averaging per-frame metric values.
+  // saved score is computed from a quality-weighted trimmed-mean
+  // consensus of these — vastly more stable than averaging per-frame
+  // metric values.
   const landmarkAccumRef = useRef<Pt[][]>([]);
+  // Per-frame quality weights aligned with landmarkAccumRef. Higher
+  // weight = frame contributed more to the final consensus. Combines
+  // detector confidence × pose quality × sharpness × brightness.
+  const weightAccumRef = useRef<number[]>([]);
   const totalSamplesRef = useRef(0);
   const scanStartRef = useRef(0);
 
@@ -571,8 +564,28 @@ export function FaceScanner({
       }
 
       const faceapi = (await import("face-api.js")) as FaceApiNS;
-      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+      // Always load the 68-point landmark net (small, required) and the
+      // tiny detector (small, our reliable fallback).
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+      ]);
+      // Try to upgrade to SSD-Mobilenet for substantially more accurate
+      // landmark localization. Larger weights (~10MB) so we time-box the
+      // download — if it doesn't arrive in 8s, we proceed with Tiny and
+      // the user still gets a perfectly usable scan (just slightly less
+      // landmark precision). The cost is paid once per browser cache.
+      try {
+        const ssdLoad = faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+        await Promise.race([
+          ssdLoad,
+          new Promise((_r, rej) => setTimeout(() => rej(new Error("ssd-timeout")), 8000))
+        ]);
+        detectorRef.current = "ssd";
+      } catch {
+        // SSD failed or timed out — Tiny is fine.
+        detectorRef.current = "tiny";
+      }
       faceApiRef.current = faceapi;
 
       const stream = await getCameraStream();
@@ -653,8 +666,8 @@ export function FaceScanner({
         ? "Turn your head left & right ↔"
         : "Look up & down ↕"
     );
-    samplesRef.current = [];
     landmarkAccumRef.current = [];
+    weightAccumRef.current = [];
     bestTakeUrlRef.current = null;
     bestTakeScoreRef.current = 0;
     totalSamplesRef.current = 0;
@@ -679,22 +692,40 @@ export function FaceScanner({
     const ctx = overlay.getContext("2d");
     if (!ctx) return;
 
-    // Higher inputSize gives noticeably more precise landmarks, at
-    // ~2x the per-frame cost. 416 is a good sweet spot for accuracy
-    // without dropping below ~15 fps on most laptops/phones.
-    // Use detectAllFaces so we can REJECT frames with more than one face
-    // visible (anti-cheat / confusion). Then proceed with the highest-
-    // confidence detection's landmarks.
+    // Use SSD-Mobilenet when loaded (much more accurate landmark
+    // localization at the cost of ~3x latency), otherwise TinyFaceDetector
+    // at inputSize 416. Either way we use detectAllFaces so we can REJECT
+    // frames where more than one face is visible (anti-cheat / confusion)
+    // and only proceed with the highest-confidence detection's landmarks.
+    const detectorOpts =
+      detectorRef.current === "ssd"
+        ? new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55 })
+        : new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 });
     const allFaces = await faceapi
-      .detectAllFaces(
-        video,
-        new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 })
-      )
+      .detectAllFaces(video, detectorOpts)
       .withFaceLandmarks();
-    const detection =
-      allFaces.length === 1
-        ? allFaces[0]
-        : null; // multi-face → treat as no face, surface a hint below
+    // Pick the largest face if multiple are detected (closest = the user).
+    // We still bail with a "multiple faces" hint to discourage cheating,
+    // but a person walking past in the background shouldn't void the scan.
+    let detection: (typeof allFaces)[number] | null = null;
+    if (allFaces.length === 1) {
+      detection = allFaces[0];
+    } else if (allFaces.length > 1) {
+      // Find the one with the largest bbox — that's the user.
+      const sorted = [...allFaces].sort(
+        (a, b) =>
+          b.detection.box.width * b.detection.box.height -
+          a.detection.box.width * a.detection.box.height
+      );
+      const largest = sorted[0];
+      const second = sorted[1];
+      // Only accept the largest if it's clearly the dominant face.
+      // Otherwise treat it as a true multi-face frame and reject.
+      const dominant =
+        largest.detection.box.width * largest.detection.box.height >
+        2.5 * second.detection.box.width * second.detection.box.height;
+      detection = dominant ? largest : null;
+    }
 
     // ALL canvas drawing happens AFTER the await in a single synchronous
     // burst. Doing drawing before the await caused React's reconciliation
@@ -712,19 +743,72 @@ export function FaceScanner({
       const pose = estimatePose(points);
 
       // Only contribute frames where (a) the pose is roughly frontal
-      // and (b) the detector is confident enough. Tilted/turned heads
-      // warp every metric, and low-confidence detections often have
-      // wildly off-by-30px landmarks. The AR overlay still renders so
-      // the user sees the dots; we just don't trust those frames for
-      // the saved score.
+      // and (b) the detector is confident enough AND (c) the image isn't
+      // too dark/blurred. Tilted/turned heads warp every metric, low-
+      // confidence detections often have wildly off-by-30px landmarks,
+      // and motion-blurred frames produce confidently-wrong landmarks.
+      // The AR overlay still renders so the user sees the dots; we just
+      // don't trust those frames for the saved score.
       const detScore = detection.detection.score;
-      if (pose.goodForScoring && detScore >= 0.6) {
+
+      // Sample image quality (sharpness + brightness) for THIS frame's
+      // bbox. We do this on a small offscreen canvas to keep cost low.
+      let sharp = 0.5; // optimistic default if sampling fails
+      let luma = 128;
+      try {
+        let qc = qualityCanvasRef.current;
+        if (!qc) {
+          qc = document.createElement("canvas");
+          qualityCanvasRef.current = qc;
+        }
+        const targetW = 320;
+        const targetH = Math.round((video.videoHeight || 480) * (targetW / (video.videoWidth || 640)));
+        if (qc.width !== targetW) qc.width = targetW;
+        if (qc.height !== targetH) qc.height = targetH;
+        const qctx = qc.getContext("2d");
+        if (qctx) {
+          qctx.drawImage(video, 0, 0, qc.width, qc.height);
+          // Scale bbox from full-res video to qualityCanvas resolution.
+          const sx = qc.width / Math.max(1, video.videoWidth || 640);
+          const sy = qc.height / Math.max(1, video.videoHeight || 480);
+          const scaledBox = {
+            x: box.x * sx,
+            y: box.y * sy,
+            width: box.width * sx,
+            height: box.height * sy
+          };
+          const id = qctx.getImageData(0, 0, qc.width, qc.height);
+          sharp = sharpnessAt(id, scaledBox);
+          luma = meanLumaAt(id, scaledBox);
+        }
+      } catch {
+        /* image quality is best-effort */
+      }
+
+      // Brightness factor: penalize <40 luma (too dark) or >215 (blown).
+      let brightFactor = 1;
+      if (luma < 40) brightFactor = clamp01(luma / 40);
+      else if (luma > 215) brightFactor = clamp01((255 - luma) / 40);
+      // Sharpness factor: under 0.15 = motion-blurred, full credit ≥ 0.4
+      const sharpFactor = clamp01((sharp - 0.10) / 0.30);
+
+      // Pose + detector quality (computed in-library).
+      const baseQ = frameQuality(points, detScore, W, H);
+
+      // Composite weight in 0..1.
+      const weight = baseQ * brightFactor * sharpFactor;
+
+      const acceptForScoring = pose.goodForScoring && detScore >= 0.6 && weight > 0.18;
+
+      if (acceptForScoring) {
         landmarkAccumRef.current.push(points);
+        weightAccumRef.current.push(weight);
         totalSamplesRef.current += 1;
-        // Best-take pfp: keep the frame with the highest confidence among
-        // good-pose frames. We snapshot the video into a 200x150 jpeg
-        // immediately rather than referencing the live video element.
-        if (detScore > bestTakeScoreRef.current) {
+        // Best-take pfp: keep the frame with the highest combined quality
+        // among good-pose frames. We snapshot the video into a 200x150
+        // jpeg immediately rather than referencing the live video element.
+        const combinedTake = detScore * Math.max(0.3, sharpFactor);
+        if (combinedTake > bestTakeScoreRef.current) {
           try {
             const cap = captureRef.current;
             const vid = videoRef.current;
@@ -734,8 +818,8 @@ export function FaceScanner({
               const cctx = cap.getContext("2d");
               if (cctx) {
                 cctx.drawImage(vid, 0, 0, cap.width, cap.height);
-                bestTakeUrlRef.current = cap.toDataURL("image/jpeg", 0.7);
-                bestTakeScoreRef.current = detScore;
+                bestTakeUrlRef.current = cap.toDataURL("image/jpeg", 0.78);
+                bestTakeScoreRef.current = combinedTake;
               }
             }
           } catch {
@@ -744,14 +828,16 @@ export function FaceScanner({
         }
       }
 
-      // Live HUD score: compute on a running consensus of accumulated
-      // landmarks (much more stable than per-frame raw scores), or fall
-      // back to the current-frame score until we have any consensus
-      // data. This is what the AR labels animate against during scan.
+      // Live HUD score: compute on a running quality-weighted consensus
+      // of accumulated landmarks (much more stable than per-frame raw
+      // scores), or fall back to the current-frame score until we have
+      // any consensus data. This is what the AR labels animate against
+      // during scan.
       const accum = landmarkAccumRef.current;
+      const weights = weightAccumRef.current;
       const avg =
         accum.length >= 5
-          ? computeEdgeScore(consensusLandmarks(accum))
+          ? computeEdgeScore(consensusLandmarksWeighted(accum, weights))
           : computeEdgeScore(points);
       setLiveScore(avg);
 
@@ -787,34 +873,36 @@ export function FaceScanner({
       // Progress + completion
       const elapsed = performance.now() - scanStartRef.current;
       const sampleProgress = Math.min(1, totalSamplesRef.current / TARGET_SAMPLES);
-      const timeProgress = Math.min(1, elapsed / 5500);
+      // Time budget: 8s for the ideal full-quality scan. After that
+      // we start relaxing gates so we never strand the user.
+      const timeProgress = Math.min(1, elapsed / 8000);
       setProgress(Math.max(sampleProgress, timeProgress));
 
       const enoughSamples = totalSamplesRef.current >= TARGET_SAMPLES;
-      const someSamples = totalSamplesRef.current >= 10;
+      const someSamples = totalSamplesRef.current >= MIN_SAMPLES_FOR_FINALIZE;
       const blinkOk = blinksRef.current >= 1;
 
       // Layered completion gates so the scan always finalizes:
-      //   1. Ideal: 50+ samples AND a registered blink → top quality.
-      //   2. After 6s with 50+ samples → skip liveness, accept.
-      //   3. After 10s with 10+ samples → accept partial scan.
-      //   4. After 13s regardless → emergency exit; uses whatever
+      //   1. Ideal: 80+ samples AND a registered blink → top quality.
+      //   2. After 9s with 80+ samples → skip liveness, accept.
+      //   3. After 12s with 30+ samples → accept partial scan.
+      //   4. After 15s regardless → emergency exit; uses whatever
       //      score the loop has converged on (or current-frame score).
       if (enoughSamples && blinkOk) {
         finalize(avg, false);
         return;
       }
-      if (enoughSamples && elapsed > 6000) {
+      if (enoughSamples && elapsed > 9000) {
         setSkippedLiveness(true);
         finalize(avg, true);
         return;
       }
-      if (someSamples && elapsed > 10000) {
+      if (someSamples && elapsed > 12000) {
         setSkippedLiveness(true);
         finalize(avg, true);
         return;
       }
-      if (elapsed > 13000) {
+      if (elapsed > 15000) {
         setSkippedLiveness(true);
         finalize(avg, true);
         return;
@@ -843,13 +931,16 @@ export function FaceScanner({
     setPhase("computing");
 
     // The saved score uses the FULL accumulated landmark set, scored
-    // once on its trimmed-mean consensus. This is much more stable
-    // than the running display score (which only uses the most recent
-    // frames). If we somehow have no accumulated frames, fall back to
-    // whatever the live HUD converged on.
+    // once on its quality-weighted trimmed-mean consensus. This is much
+    // more stable than the running display score (which only uses the
+    // most recent frames). If we somehow have no accumulated frames,
+    // fall back to whatever the live HUD converged on.
     const accum = landmarkAccumRef.current;
+    const weights = weightAccumRef.current;
     const finalScore =
-      accum.length >= 5 ? computeEdgeScore(consensusLandmarks(accum)) : avg;
+      accum.length >= 5
+        ? computeEdgeScore(consensusLandmarksWeighted(accum, weights))
+        : avg;
 
     // Use the BEST-TAKE captured during the scan if we have one (the
     // frame with the highest detector confidence among good-pose
@@ -973,7 +1064,12 @@ export function FaceScanner({
       {(phase === "scanning" || phase === "liveness") && (
         <div className="space-y-3">
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/50">
-            <span>Scanning</span>
+            <span>
+              Scanning
+              <span className="ml-2 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-white/60">
+                {detectorRef.current === "ssd" ? "HQ · SSD" : "TINY"}
+              </span>
+            </span>
             <span>
               {Math.round(progress * 100)}% · Liveness {blinks ? "✓" : "—"}
               <span className="ml-2 font-mono text-white/40">EAR {liveEar.toFixed(2)}</span>

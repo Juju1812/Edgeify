@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   computeEdgeScore,
-  consensusLandmarks,
+  consensusLandmarksWeighted,
+  frameQuality,
+  meanLumaAt,
+  sharpnessAt,
   trimmedMean,
   type Pt
 } from "@/lib/edge-score";
@@ -14,6 +17,7 @@ import { playSfx, vibrate } from "@/lib/audio";
 import { applyMatchResult } from "@/lib/season";
 import { coachingTip } from "@/lib/coaching";
 import { Confetti } from "@/components/Confetti";
+import { DeepAnalysis } from "@/components/Arena/DeepAnalysis";
 import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -227,7 +231,14 @@ export function LiveMatch({
     won: boolean;
     delta: number;
     rounds: { me: number; opp: number }[];
+    oppFaceDataUrl: string | null;
+    myFaceDataUrl: string | null;
+    myWins: number;
+    oppWins: number;
   } | null>(null);
+  // Hidden canvas used to grab a snapshot of the opponent's video stream
+  // at match-end so the deep-analysis flow has both faces.
+  const oppCaptureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [copied, setCopied] = useState(false);
   const [reactions, setReactions] = useState<ReactionPing[]>([]);
   const reactionIdRef = useRef(0);
@@ -301,8 +312,16 @@ export function LiveMatch({
   const isHostRef = useRef(false);
 
   const faceApiRef = useRef<FaceApiNS | null>(null);
+  // Tracks which detector loaded successfully — SSD-Mobilenet gives
+  // significantly more accurate landmark localization but its weights
+  // are ~10MB so we fall back to TinyFaceDetector if it fails to load.
+  const detectorRef = useRef<"ssd" | "tiny">("tiny");
   const scanRafRef = useRef<number | null>(null);
   const sampleBufferRef = useRef<number[]>([]);
+  // Per-frame quality weights aligned with landmarkAccumRef.
+  const weightAccumRef = useRef<number[]>([]);
+  // Reusable small offscreen canvas for sharpness/brightness sampling.
+  const qualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Canvas for the AR overlay on the local video tile during scanning.
   const localOverlayElRef = useRef<HTMLCanvasElement | null>(null);
@@ -329,8 +348,24 @@ export function LiveMatch({
         }
 
         const faceapi = (await import("face-api.js")) as FaceApiNS;
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+        ]);
+        if (cancelled) return;
+        // Try to upgrade to SSD-Mobilenet for more accurate landmark
+        // localization. Time-boxed so a slow connection doesn't stall the
+        // whole match — if SSD doesn't arrive in 8s we proceed with Tiny.
+        try {
+          const ssdLoad = faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+          await Promise.race([
+            ssdLoad,
+            new Promise((_r, rej) => setTimeout(() => rej(new Error("ssd-timeout")), 8000))
+          ]);
+          if (!cancelled) detectorRef.current = "ssd";
+        } catch {
+          /* SSD failed or timed out — Tiny is fine. */
+        }
         if (cancelled) return;
         faceApiRef.current = faceapi;
 
@@ -406,6 +441,64 @@ export function LiveMatch({
     dataConnRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
+  }
+
+  // Tears down the peer connection but KEEPS the camera + face-api models
+  // alive so we can drop straight back into the lobby for another match.
+  function teardownConnectionOnly() {
+    if (scanRafRef.current) cancelAnimationFrame(scanRafRef.current);
+    scanRafRef.current = null;
+    try {
+      dataConnRef.current?.send?.({ type: "leave" } satisfies LiveMsg);
+    } catch {
+      /* connection may already be closed */
+    }
+    try {
+      peerRef.current?.destroy?.();
+    } catch {
+      /* */
+    }
+    peerRef.current = null;
+    dataConnRef.current = null;
+    remoteStreamRef.current = null;
+    if (pollTimerRef.current) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    matchedRef.current = false;
+    matchmakingPeerIdRef.current = null;
+  }
+
+  // "Play Again" from the result screen — wipes match state, recycles
+  // peer (so we get a fresh ID), and returns to lobby with the camera
+  // still warm. This skips the long "loading models & camera…" splash.
+  function playAgain() {
+    teardownConnectionOnly();
+    setOpponent(null);
+    setRound(0);
+    roundRef.current = 0;
+    setScoreboard([]);
+    setLiveMine(0);
+    setLiveOpp(0);
+    setOppScoreReceived(null);
+    setMyScoreReady(null);
+    setMatchResult(null);
+    setReactions([]);
+    landmarkAccumRef.current = [];
+    weightAccumRef.current = [];
+    sampleBufferRef.current = [];
+    setChatLog([]);
+    setChatInput("");
+    setCode(null);
+    setEnteredCode("");
+    setCopied(false);
+    setError(null);
+    lastResolvedRoundRef.current = -1;
+    if (transitionTimeoutRef.current) {
+      window.clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = null;
+    }
+    setPhase("lobby");
   }
 
   // ─── Tournament auto-pair (bypasses code entry) ───────────────────
@@ -728,6 +821,57 @@ export function LiveMatch({
     }
   }
 
+  /**
+   * Snapshot the opponent's video into a small jpeg data URL. Used at
+   * match-end to feed the deep-analysis flow. Returns null if the
+   * remote element isn't ready (e.g. opponent disconnected before the
+   * round resolved).
+   */
+  function captureRemoteSnapshot(): string | null {
+    const video = remoteVideoElRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return null;
+    try {
+      let cap = oppCaptureCanvasRef.current;
+      if (!cap) {
+        cap = document.createElement("canvas");
+        oppCaptureCanvasRef.current = cap;
+      }
+      cap.width = 320;
+      cap.height = 240;
+      const ctx = cap.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, cap.width, cap.height);
+      return cap.toDataURL("image/jpeg", 0.82);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Snapshot the local user's video at match-end. Used as a fallback
+   * if user.faceDataUrl wasn't set (e.g. they came straight to live
+   * match without going through the lab first).
+   */
+  function captureLocalSnapshot(): string | null {
+    const video = localVideoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return null;
+    try {
+      let cap = oppCaptureCanvasRef.current;
+      if (!cap) {
+        cap = document.createElement("canvas");
+        oppCaptureCanvasRef.current = cap;
+      }
+      cap.width = 320;
+      cap.height = 240;
+      const ctx = cap.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, cap.width, cap.height);
+      return cap.toDataURL("image/jpeg", 0.82);
+    } catch {
+      return null;
+    }
+  }
+
   function sendMsg(msg: LiveMsg) {
     try {
       dataConnRef.current?.send(msg);
@@ -817,17 +961,20 @@ export function LiveMatch({
   function runScanLoop(idx: number) {
     sampleBufferRef.current = [];
     landmarkAccumRef.current = [];
+    weightAccumRef.current = [];
     const start = performance.now();
     const criterion = ROUND_CRITERIA[idx].key;
     let lastTickSent = 0;
 
     const finishRound = () => {
-      // Score the consensus face built from all good frames during this
-      // round — much more stable than averaging per-frame scores.
+      // Score the quality-weighted consensus face built from all good
+      // frames during this round — much more stable than averaging
+      // per-frame scores.
       const accum = landmarkAccumRef.current;
+      const weights = weightAccumRef.current;
       let finalVal = 50;
       if (accum.length >= 5) {
-        const cons = consensusLandmarks(accum);
+        const cons = consensusLandmarksWeighted(accum, weights);
         const score = computeEdgeScore(cons);
         finalVal = Math.round(scoreFor(score, criterion));
       } else if (sampleBufferRef.current.length > 0) {
@@ -864,14 +1011,17 @@ export function LiveMatch({
       }
 
       try {
-        // Live match keeps inputSize 320 (vs lab's 416) for ~2x perf since
-        // we're running on top of a WebRTC video pipeline. scoreThreshold
-        // bumped from 0.4 → 0.55 so we ignore low-confidence misdetects.
+        // Use SSD-Mobilenet when available for noticeably more accurate
+        // landmark localization; fall back to TinyFaceDetector at 416
+        // (vs the old 320) when SSD didn't load. scoreThreshold/min-
+        // confidence kept at 0.55 so low-confidence misdetects are
+        // dropped before they can poison the consensus.
+        const detectorOpts =
+          detectorRef.current === "ssd"
+            ? new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55 })
+            : new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 });
         const det = await faceapi
-          .detectSingleFace(
-            video,
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.55 })
-          )
+          .detectSingleFace(video, detectorOpts)
           .withFaceLandmarks();
 
         // Clear + draw AFTER await so React reconciliation triggered by
@@ -887,18 +1037,74 @@ export function LiveMatch({
             x: p.x,
             y: p.y
           }));
+          const box = det.detection.box;
 
-          // Accumulate raw landmarks for the end-of-round consensus
-          // score. Per-frame score still computed for the running HUD.
-          landmarkAccumRef.current.push(points);
+          // Sample image quality (sharpness + brightness) for THIS frame's
+          // bbox via a small offscreen canvas. Frames that are dark or
+          // motion-blurred get down-weighted in the consensus, instead of
+          // contaminating the score.
+          let sharp = 0.5;
+          let luma = 128;
+          try {
+            let qc = qualityCanvasRef.current;
+            if (!qc) {
+              qc = document.createElement("canvas");
+              qualityCanvasRef.current = qc;
+            }
+            const targetW = 256;
+            const targetH = Math.round(
+              (video.videoHeight || 480) * (targetW / (video.videoWidth || 640))
+            );
+            if (qc.width !== targetW) qc.width = targetW;
+            if (qc.height !== targetH) qc.height = targetH;
+            const qctx = qc.getContext("2d");
+            if (qctx) {
+              qctx.drawImage(video, 0, 0, qc.width, qc.height);
+              const sx = qc.width / Math.max(1, video.videoWidth || 640);
+              const sy = qc.height / Math.max(1, video.videoHeight || 480);
+              const scaledBox = {
+                x: box.x * sx,
+                y: box.y * sy,
+                width: box.width * sx,
+                height: box.height * sy
+              };
+              const id = qctx.getImageData(0, 0, qc.width, qc.height);
+              sharp = sharpnessAt(id, scaledBox);
+              luma = meanLumaAt(id, scaledBox);
+            }
+          } catch {
+            /* image quality is best-effort */
+          }
 
-          // Live score: build a running consensus from accumulated
-          // landmarks once we have enough; before that, use the latest
-          // frame's score as a fade-in.
+          let brightFactor = 1;
+          if (luma < 40) brightFactor = Math.max(0, luma / 40);
+          else if (luma > 215) brightFactor = Math.max(0, (255 - luma) / 40);
+          const sharpFactor = Math.max(0, Math.min(1, (sharp - 0.10) / 0.30));
+
+          const baseQ = frameQuality(
+            points,
+            det.detection.score,
+            video.videoWidth || 640,
+            video.videoHeight || 480
+          );
+          const weight = baseQ * brightFactor * sharpFactor;
+
+          // Accumulate raw landmarks + weights for the end-of-round
+          // weighted consensus score. Frames below a quality floor are
+          // still used for the live HUD but skipped for scoring.
+          if (weight > 0.15) {
+            landmarkAccumRef.current.push(points);
+            weightAccumRef.current.push(weight);
+          }
+
+          // Live score: build a running weighted consensus from
+          // accumulated landmarks once we have enough; before that, use
+          // the latest frame's score as a fade-in.
           const accum = landmarkAccumRef.current;
+          const ws = weightAccumRef.current;
           const liveScoreObj =
             accum.length >= 5
-              ? computeEdgeScore(consensusLandmarks(accum))
+              ? computeEdgeScore(consensusLandmarksWeighted(accum, ws))
               : computeEdgeScore(points);
           const v = scoreFor(liveScoreObj, criterion);
           sampleBufferRef.current.push(v);
@@ -1031,7 +1237,22 @@ export function LiveMatch({
       setBoostArmed(false);
     }
 
-    setMatchResult({ won, delta, rounds: scoreboard });
+    // Capture both faces RIGHT NOW while the WebRTC stream is still
+    // alive — the deep-analysis flow on the result screen needs them.
+    // We capture into a hidden 320x240 jpeg (small enough to send over
+    // the wire without bloat).
+    const oppFaceDataUrl = captureRemoteSnapshot();
+    const myFaceDataUrl = captureLocalSnapshot() || user.faceDataUrl;
+
+    setMatchResult({
+      won,
+      delta,
+      rounds: scoreboard,
+      oppFaceDataUrl,
+      myFaceDataUrl,
+      myWins,
+      oppWins
+    });
     setPhase("result");
     playSfx(won ? "win" : "lose");
     vibrate(won ? [50, 80, 50, 80, 200] : [400]);
@@ -1166,7 +1387,12 @@ export function LiveMatch({
       )}
 
       {phase === "result" && matchResult && opponent && (
-        <Result result={matchResult} opponent={opponent} onClose={onClose} />
+        <Result
+          result={matchResult}
+          opponent={opponent}
+          onClose={onClose}
+          onAgain={playAgain}
+        />
       )}
     </div>
   );
@@ -1787,11 +2013,21 @@ function PlayerTile(props: {
 function Result({
   result,
   opponent,
-  onClose
+  onClose,
+  onAgain
 }: {
-  result: { won: boolean; delta: number; rounds: { me: number; opp: number }[] };
+  result: {
+    won: boolean;
+    delta: number;
+    rounds: { me: number; opp: number }[];
+    oppFaceDataUrl: string | null;
+    myFaceDataUrl: string | null;
+    myWins: number;
+    oppWins: number;
+  };
   opponent: { username: string; elo: number };
   onClose: () => void;
+  onAgain?: () => void;
 }) {
   const { user, update } = useUser();
   const [blocked, setBlocked] = useState(false);
@@ -1921,6 +2157,14 @@ function Result({
       })()}
 
       <div className="mt-7 flex flex-wrap justify-center gap-3">
+        {onAgain && (
+          <button
+            onClick={onAgain}
+            className="rounded-lg border border-emerald-400/60 bg-emerald-500/15 px-6 py-3 text-xs uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-400 hover:bg-emerald-500/25"
+          >
+            Play Again →
+          </button>
+        )}
         <button
           onClick={share}
           disabled={sharing}
@@ -1955,8 +2199,28 @@ function Result({
           Back to Arena
         </button>
       </div>
+
+      {/* AI deep-analysis surface — only renders when both face snapshots
+          were captured at match end. SVG silhouettes (demo mode) get
+          filtered out so we don't ship a non-photo to the analyzer. */}
+      <DeepAnalysis
+        myFace={photoOnly(result.myFaceDataUrl) || photoOnly(user.faceDataUrl)}
+        oppFace={photoOnly(result.oppFaceDataUrl)}
+        myName={user.username || "Player A"}
+        oppName={opponent.username}
+        myScore={result.myWins}
+        oppScore={result.oppWins}
+      />
     </motion.div>
   );
+}
+
+// Returns the data URL only if it's a photo (jpeg/png/webp). The demo
+// path produces an SVG silhouette which the analysis API can't accept,
+// so we filter it out at the call site.
+function photoOnly(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return /^data:image\/(jpeg|png|webp)/.test(url) ? url : null;
 }
 
 // ─── Camera helper (mirror of FaceScanner's chain) ────────────────────

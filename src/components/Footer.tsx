@@ -19,7 +19,7 @@ export function Footer() {
           <Link href="/profile" className="hover:text-white">
             Delete my data
           </Link>
-          <Link href="/touch-grass" className="hover:text-mog-violet">
+          <Link href="/touch-grass" className="hover:text-edge-cyan">
             Touch grass →
           </Link>
         </div>

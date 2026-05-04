@@ -6,8 +6,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Edgify — Ranked 1v1 Face-Offs",
   description:
-    "Edgify is an entertainment platform that scores webcam selfies on geometric facial measurements (symmetry, proportions, jawline) and pits players in 1v1 ranked matches. EdgeScore is a fun metric, not an objective beauty judgment.",
-  keywords: ["edgify", "face-off", "ranked", "1v1", "leaderboard"],
+    "Live 1v1 face-offs scored by AI on geometric facial measurements. Climb the seasonal ranked ladder against real opponents — no bots, no filters. EdgeScore is an entertainment metric, not an objective beauty judgment.",
+  keywords: ["edgify", "edgescore", "face-off", "ranked", "1v1", "leaderboard"],
   manifest: "/manifest.json",
   icons: {
     icon: "/icon.svg",

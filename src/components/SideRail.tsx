@@ -30,10 +30,10 @@ export function SideRail() {
             href={item.href}
             aria-label={item.label}
             title={item.label}
-            className="glass glass-hover relative flex h-11 w-11 items-center justify-center rounded-l-2xl rounded-r-md text-sm text-mog-violet"
+            className="glass glass-hover relative flex h-11 w-11 items-center justify-center rounded-l-2xl rounded-r-md text-sm text-edge-cyan"
             style={{
               boxShadow:
-                "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 24px -8px rgba(168, 85, 247, 0.5)"
+                "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 24px -8px rgba(34, 233, 255, 0.45)"
             }}
           >
             {item.glyph}

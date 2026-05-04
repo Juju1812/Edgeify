@@ -24,13 +24,13 @@ export function SeasonStrip() {
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold text-white"
           style={{
             background:
-              "linear-gradient(135deg, rgba(168,85,247,0.6), rgba(217,70,239,0.6))"
+              "linear-gradient(135deg, rgba(34,233,255,0.55), rgba(255,93,143,0.55))"
           }}
         >
           S{season.number}
         </div>
         <div>
-          <p className="label-xs text-mog-pink">Season {season.number} · Level {level}</p>
+          <p className="label-xs text-edge-cyan">Season {season.number} · Level {level}</p>
           <p className="mt-1 text-xs text-white/50">
             {status === "guest"
               ? "Sign in to track season XP"
@@ -44,10 +44,13 @@ export function SeasonStrip() {
             initial={{ width: 0 }}
             animate={{ width: `${pct}%` }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="h-full bg-gradient-to-r from-mog-violet to-mog-pink"
+            className="h-full"
+            style={{
+              background: "linear-gradient(90deg, #22e9ff 0%, #ff5d8f 100%)"
+            }}
           />
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/50">
+        <span className="stat-mono text-[10px] uppercase tracking-[0.22em] text-white/50">
           {xpThis}/{xpNext}
         </span>
       </div>

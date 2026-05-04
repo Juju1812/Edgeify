@@ -20,6 +20,57 @@ export function GhostIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/**
+ * Edgify brand mark — a stylized "E" formed by two intersecting edges,
+ * with an angular notch that reads as a wedge. Distinct from the
+ * ghost-emoji vibe other face-off sites lean on; reads as competitive
+ * and geometric. Uses currentColor so it inherits accent.
+ */
+export function EdgeMark(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      {...props}
+    >
+      <defs>
+        <linearGradient id="edgemark-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#22e9ff" />
+          <stop offset="100%" stopColor="#ff5d8f" />
+        </linearGradient>
+      </defs>
+      {/* Outer hexagonal edge ring */}
+      <path
+        d="M12 2.5 L21 7 L21 17 L12 21.5 L3 17 L3 7 Z"
+        stroke="url(#edgemark-grad)"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      {/* Inner E-wedge mark */}
+      <path
+        d="M8 8 L15 8 M8 12 L13 12 M8 16 L15 16"
+        stroke="url(#edgemark-grad)"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Solid mono variant — used in places where the gradient mark would
+ * compete (e.g. tiny header marks). Inherits currentColor.
+ */
+export function EdgeMarkMono(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 2.5 L21 7 L21 17 L12 21.5 L3 17 L3 7 Z" />
+      <path d="M8 8 L15 8 M8 12 L13 12 M8 16 L15 16" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SwordsIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

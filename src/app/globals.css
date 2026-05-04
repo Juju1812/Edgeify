@@ -1,13 +1,20 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Menlo", ui-monospace, monospace;
+  /* Asymmetric, off-center backdrop — cyan glow up-left + coral glow
+     down-right. Different shape from the symmetric center-top violet
+     bloom every other site uses. */
   --bg-radial:
-    radial-gradient(120% 80% at 50% -10%, rgba(124, 58, 237, 0.45) 0%, rgba(76, 29, 149, 0.18) 35%, rgba(7, 5, 18, 0) 70%),
-    radial-gradient(70% 50% at 50% 0%, rgba(168, 85, 247, 0.18) 0%, rgba(7, 5, 18, 0) 60%),
-    linear-gradient(180deg, #0a0618 0%, #060311 100%);
+    radial-gradient(60% 45% at 18% 10%, rgba(34, 233, 255, 0.22) 0%, rgba(8, 12, 28, 0) 60%),
+    radial-gradient(55% 40% at 82% 90%, rgba(255, 93, 143, 0.18) 0%, rgba(8, 12, 28, 0) 65%),
+    radial-gradient(120% 80% at 50% 110%, rgba(15, 23, 46, 0.95) 0%, rgba(4, 6, 12, 1) 75%),
+    linear-gradient(180deg, #050813 0%, #04060c 100%);
 }
 
 html,
@@ -15,8 +22,9 @@ body {
   background: var(--bg-radial);
   color: #e5e7eb;
   min-height: 100vh;
-  font-family: var(--font-mono);
-  letter-spacing: 0.01em;
+  font-family: var(--font-display);
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
@@ -30,22 +38,38 @@ body::before {
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    radial-gradient(1px 1px at 80% 70%, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    radial-gradient(1px 1px at 60% 20%, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    radial-gradient(1px 1px at 20% 30%, rgba(34, 233, 255, 0.06) 1px, transparent 1px),
+    radial-gradient(1px 1px at 80% 70%, rgba(255, 93, 143, 0.05) 1px, transparent 1px),
+    radial-gradient(1px 1px at 60% 20%, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 240px 240px, 320px 320px, 180px 180px;
   z-index: 0;
   mix-blend-mode: screen;
 }
 
+/* Faint diagonal grid — gives the page a "design surface" feel without
+   competing with content. Lives behind everything. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(135deg, rgba(34, 233, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(45deg, rgba(255, 93, 143, 0.018) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: radial-gradient(70% 60% at 50% 30%, black 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 30%, black 0%, transparent 80%);
+}
+
 @layer components {
   .glass {
-    @apply relative rounded-3xl border border-white/[0.06] bg-white/[0.02];
+    @apply relative rounded-3xl border border-white/[0.07] bg-white/[0.02];
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      inset 0 0 60px rgba(168, 85, 247, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 0 60px rgba(34, 233, 255, 0.035),
       0 30px 60px -30px rgba(0, 0, 0, 0.7);
   }
 
@@ -53,12 +77,40 @@ body::before {
     @apply transition-all duration-300;
   }
   .glass-hover:hover {
-    @apply border-white/[0.1] bg-white/[0.04];
+    @apply border-white/[0.12] bg-white/[0.04];
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      inset 0 0 80px rgba(168, 85, 247, 0.08),
-      0 40px 80px -30px rgba(124, 58, 237, 0.5);
+      inset 0 0 80px rgba(34, 233, 255, 0.07),
+      0 40px 80px -30px rgba(34, 233, 255, 0.35);
     transform: translateY(-2px);
+  }
+
+  /* Featured surface for the hero arena tile — gets the bigger glow
+     and a subtle coral kicker on the underside. Used sparingly. */
+  .glass-featured {
+    @apply relative rounded-3xl border border-white/[0.08];
+    background:
+      linear-gradient(135deg, rgba(34, 233, 255, 0.05) 0%, rgba(255, 93, 143, 0.04) 100%),
+      rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 100px rgba(34, 233, 255, 0.06),
+      0 50px 90px -40px rgba(34, 233, 255, 0.45),
+      0 30px 70px -30px rgba(255, 93, 143, 0.25);
+  }
+  .glass-featured-hover {
+    @apply transition-all duration-300;
+  }
+  .glass-featured-hover:hover {
+    @apply border-white/[0.14];
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 120px rgba(34, 233, 255, 0.1),
+      0 60px 110px -40px rgba(34, 233, 255, 0.55),
+      0 40px 90px -30px rgba(255, 93, 143, 0.32);
+    transform: translateY(-3px);
   }
 
   .pill {
@@ -66,18 +118,51 @@ body::before {
   }
 
   .label-xs {
-    @apply text-[10px] uppercase tracking-[0.32em] text-white/40;
+    @apply text-[10px] font-medium uppercase tracking-[0.32em] text-white/40;
+    font-family: var(--font-display);
   }
 
+  /* Primary heading style — sans-serif, tight tracking, big. Used for
+     hero copy and feature headlines. Distinct from `.heading-card`
+     (which is monospace, all-caps). */
+  .heading-display {
+    @apply font-bold text-white;
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    line-height: 0.95;
+  }
+
+  /* Card-mono heading — kept for backwards compat. Consider migrating
+     specific surfaces to .heading-display where it reads better. */
   .heading-card {
-    @apply text-2xl font-semibold uppercase tracking-[0.18em] text-white drop-shadow-[0_0_18px_rgba(168,85,247,0.35)];
+    @apply text-2xl font-semibold uppercase tracking-[0.16em] text-white;
+    font-family: var(--font-mono);
+    text-shadow: 0 0 18px rgba(34, 233, 255, 0.30);
+  }
+
+  /* Statistic / data text — monospace with looser tracking. Used for
+     ELO numbers, online counts, anything numeric. */
+  .stat-mono {
+    font-family: var(--font-mono);
+    @apply font-semibold tabular-nums tracking-[0.08em];
+  }
+
+  /* Wordmark with a subtle cyan→coral gradient. Used for the brand
+     name in the guest banner and big hero. */
+  .brand-edge {
+    background: linear-gradient(120deg, #22e9ff 0%, #b9f8ff 30%, #ff5d8f 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    background-size: 200% 100%;
+    animation: edge-sweep 12s ease-in-out infinite alternate;
   }
 
   .subtle-divider {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(168, 85, 247, 0.4) 50%,
+      rgba(34, 233, 255, 0.4) 50%,
       transparent 100%
     );
     height: 1px;
