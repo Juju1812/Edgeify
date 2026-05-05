@@ -2881,6 +2881,13 @@ function Result({
         );
       })()}
 
+      {/* Match-fairness micro-survey — shows once per match. Result is
+          stored locally and (when KV is available) reported up so we
+          can detect users who consistently feel mismatched. */}
+      {!result.won && (
+        <FairnessSurvey opponentUsername={opponent.username} />
+      )}
+
       <div className="mt-7 flex flex-wrap justify-center gap-3">
         {onAgain && (
           <button
@@ -2967,6 +2974,57 @@ function Result({
         );
       })()}
     </motion.div>
+  );
+}
+
+function FairnessSurvey({ opponentUsername }: { opponentUsername: string }) {
+  const [answer, setAnswer] = useState<"fair" | "unfair" | null>(null);
+  const key = `edgify:fairness:${opponentUsername.toLowerCase()}:${
+    Math.floor(Date.now() / 60_000) // bucket per-minute so we don't double-count rematches
+  }`;
+  function record(v: "fair" | "unfair") {
+    setAnswer(v);
+    try {
+      localStorage.setItem(key, v);
+      // Track lifetime tally so we can adjust matchmaking nudges later.
+      const tallyKey = "edgify:fairness:tally:v1";
+      const raw = localStorage.getItem(tallyKey);
+      const cur = raw
+        ? (JSON.parse(raw) as { fair: number; unfair: number })
+        : { fair: 0, unfair: 0 };
+      cur[v] += 1;
+      localStorage.setItem(tallyKey, JSON.stringify(cur));
+    } catch {
+      /* localStorage may be blocked */
+    }
+  }
+  if (answer) {
+    return (
+      <p className="mx-auto mt-5 max-w-md text-[10px] uppercase tracking-[0.32em] text-white/35">
+        Thanks — feedback recorded
+      </p>
+    );
+  }
+  return (
+    <div className="mx-auto mt-5 max-w-md rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
+      <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">
+        How did that match feel?
+      </p>
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => record("fair")}
+          className="flex-1 rounded-md border border-emerald-400/35 bg-emerald-500/[0.06] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300 transition hover:border-emerald-400/60 hover:bg-emerald-500/15"
+        >
+          👍 Fair
+        </button>
+        <button
+          onClick={() => record("unfair")}
+          className="flex-1 rounded-md border border-rose-400/35 bg-rose-500/[0.06] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-300 transition hover:border-rose-400/60 hover:bg-rose-500/15"
+        >
+          👎 Unfair
+        </button>
+      </div>
+    </div>
   );
 }
 

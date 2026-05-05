@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useUser } from "@/lib/user-context";
+import { NearestScores } from "@/components/NearestScores";
 import { FaceScanner, type ScanResult } from "@/components/Lab/FaceScanner";
 import { ScoreReveal } from "@/components/Lab/ScoreReveal";
 import { FirstScanShare } from "@/components/Lab/FirstScanShare";
@@ -111,6 +112,7 @@ function SavedScan() {
   const score = user.edgeScore!;
 
   return (
+    <div className="space-y-6">
     <div className="grid gap-6 md:grid-cols-[260px_1fr]">
       <div className="glass overflow-hidden rounded-2xl">
         {user.faceDataUrl ? (
@@ -162,6 +164,8 @@ function SavedScan() {
           </button>
         </div>
       </div>
+    </div>
+    <NearestScores />
     </div>
   );
 }

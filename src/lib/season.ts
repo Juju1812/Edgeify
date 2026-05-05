@@ -199,14 +199,25 @@ export function tickDailyStreak(prev: UserState): Partial<UserState> {
   const today = dayOfYearUtc();
   if (prev.dailyStreakDay === today) return {}; // already ticked today
   const isContinuation = today === prev.dailyStreakDay + 1;
-  const newStreak = isContinuation ? prev.dailyStreak + 1 : 1;
+  // Streak-saver rescue: if the user broke their streak by exactly one
+  // missed day AND they have a saver banked, consume one saver and
+  // treat today as a continuation. Multi-day gaps reset.
+  const isOneDayMiss =
+    !isContinuation &&
+    prev.dailyStreak > 0 &&
+    today === prev.dailyStreakDay + 2;
+  const useSaver = isOneDayMiss && (prev.streakSavers || 0) > 0;
+  const newStreak =
+    isContinuation || useSaver ? prev.dailyStreak + 1 : 1;
   // Daily login bonus XP: 25 base + 10 per consecutive day, capped at 100
   const bonusXp = Math.min(100, 25 + (newStreak - 1) * 10);
-  return {
+  const patch: Partial<UserState> = {
     dailyStreak: newStreak,
     dailyStreakDay: today,
     seasonXp: prev.seasonXp + bonusXp
   };
+  if (useSaver) patch.streakSavers = (prev.streakSavers || 0) - 1;
+  return patch;
 }
 
 // ─── Inactivity ELO decay ─────────────────────────────────────────────

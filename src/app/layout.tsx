@@ -4,6 +4,7 @@ import { ToastProvider } from "@/lib/toast-context";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { BugReportButton } from "@/components/BugReportButton";
 import { PerfClass } from "@/components/PerfClass";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -73,6 +74,7 @@ export default function RootLayout({
             <div className="relative z-10">{children}</div>
             <KeyboardShortcuts />
             <BugReportButton />
+            <PWAInstallPrompt />
           </ToastProvider>
         </UserProvider>
       </body>

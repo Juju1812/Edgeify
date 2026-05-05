@@ -167,6 +167,10 @@ export type UserState = {
   /** Epoch ms of the most recent ranked / live match. Drives the
    *  comeback-bonus rule (2x XP after 3+ days away). */
   lastMatchAt: number | null;
+  /** Stockpile of streak savers — each one absorbs one missed day
+   *  before the daily streak resets to zero. Bought with Edge Boosts
+   *  (3 boosts → 1 saver). Capped at 1 active at a time. */
+  streakSavers: number;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -230,7 +234,8 @@ export const DEFAULT_USER: UserState = {
   autoAnalysisFired: false,
   titles: [],
   activeTitle: null,
-  lastMatchAt: null
+  lastMatchAt: null,
+  streakSavers: 0
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";
