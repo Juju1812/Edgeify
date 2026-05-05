@@ -123,6 +123,11 @@ export function GuestBanner({ onSignIn }: { onSignIn: () => void }) {
                 {user.username}
                 <OwnerBadge name={user.username} size="xs" />
                 <ProBadge active={isPro(user)} size="xs" />
+                {user.activeTitle && (
+                  <span className="ml-1.5 inline-flex items-center rounded-md border border-edge-cyan/30 bg-edge-cyan/[0.06] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.22em] text-edge-cyan">
+                    {user.activeTitle}
+                  </span>
+                )}
               </span>
               {status === "auth-no-scan" && (
                 <span className="ml-2 text-edge-cyan">· No scan yet</span>

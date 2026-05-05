@@ -87,6 +87,18 @@ const WeeklyRecap = dynamic(
   () => import("@/components/WeeklyRecap").then((m) => m.WeeklyRecap),
   { ssr: false }
 );
+const SeasonCountdown = dynamic(
+  () => import("@/components/SeasonCountdown").then((m) => m.SeasonCountdown),
+  { ssr: false }
+);
+const AnniversaryCard = dynamic(
+  () => import("@/components/AnniversaryCard").then((m) => m.AnniversaryCard),
+  { ssr: false }
+);
+const DailyPoll = dynamic(
+  () => import("@/components/DailyPoll").then((m) => m.DailyPoll),
+  { ssr: false, loading: () => <div className="glass h-24 animate-pulse rounded-2xl" /> }
+);
 
 export default function HomePage() {
   const { user, status, ready } = useUser();
@@ -145,6 +157,8 @@ export default function HomePage() {
 
       {/* ───── ONBOARDING + DAILY SPIN + PROMO + DECAY ───── */}
       <section className="mx-auto mt-5 max-w-[1400px] space-y-3 px-6">
+        <SeasonCountdown />
+        <AnniversaryCard />
         <OnboardingChecklist />
         <DailyLoginSpinner />
         <PromoSeriesWidget />
@@ -211,10 +225,11 @@ export default function HomePage() {
         <StreakLadder />
       </section>
 
-      {/* ───── DAILY QUESTS + WEEKLY RECAP ───── */}
+      {/* ───── DAILY QUESTS + WEEKLY RECAP + DAILY POLL ───── */}
       <section className="mx-auto mt-3 max-w-[1400px] space-y-3 px-6">
         <DailyQuests />
         <WeeklyRecap />
+        <DailyPoll />
       </section>
 
       {/* ───── EXTRA NAV (row 1: action) ───── */}

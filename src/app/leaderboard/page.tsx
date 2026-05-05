@@ -23,6 +23,7 @@ export default function LeaderboardPage() {
   const { user, status } = useUser();
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"global" | "friends" | "daily" | "weekly">("global");
+  const [region, setRegion] = useState<"world" | "country">("world");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +83,7 @@ export default function LeaderboardPage() {
   const filtered = useMemo(() => {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
+    const myCountry = (user.countryCode || "").toUpperCase();
     return all
       .filter((u) => {
         if (tab === "friends") return friendsSet.has(u.username.toLowerCase());
@@ -95,10 +97,15 @@ export default function LeaderboardPage() {
         }
         return true;
       })
+      .filter((u) => {
+        if (region === "world") return true;
+        if (!myCountry) return true; // no country set -> no-op filter
+        return (u.countryCode || "").toUpperCase() === myCountry;
+      })
       .filter(
         (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
       );
-  }, [all, query, tab, friendsSet]);
+  }, [all, query, tab, region, friendsSet, user.countryCode]);
 
   const myIndex = all.findIndex(
     (u) => u.username.toLowerCase() === user.username?.toLowerCase()
@@ -150,6 +157,20 @@ export default function LeaderboardPage() {
               Friends ({user.friends.length})
             </TabButton>
           </div>
+          {user.countryCode && (
+            <div className="inline-flex flex-wrap rounded-lg border border-white/10 bg-black/30 p-1">
+              <TabButton active={region === "world"} onClick={() => setRegion("world")}>
+                🌎 World
+              </TabButton>
+              <TabButton
+                active={region === "country"}
+                onClick={() => setRegion("country")}
+                title={`Players in ${user.countryCode.toUpperCase()}`}
+              >
+                {flagFor(user.countryCode) || "🌐"} My country
+              </TabButton>
+            </div>
+          )}
           <input
             type="text"
             value={query}
@@ -255,15 +276,18 @@ export default function LeaderboardPage() {
 function TabButton({
   active,
   onClick,
-  children
+  children,
+  title
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={
         "rounded-md px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition " +
         (active

@@ -163,6 +163,7 @@ export function applyLevelRewards(prev: UserState): Partial<UserState> {
   if (lvl <= prev.claimedLevel) return {};
   let edgeBoosts = prev.edgeBoosts;
   const powerUps: Partial<Record<PowerUpId, number>> = { ...prev.powerUps };
+  const newTitles: string[] = [...(prev.titles || [])];
   for (let l = prev.claimedLevel + 1; l <= lvl; l++) {
     const reward = rewardAtLevel(l);
     if (!reward) continue;
@@ -171,9 +172,17 @@ export function applyLevelRewards(prev: UserState): Partial<UserState> {
     } else if (reward.kind === "powerUp") {
       powerUps[reward.powerUp] =
         (powerUps[reward.powerUp] || 0) + reward.count;
+    } else if (reward.kind === "title") {
+      if (!newTitles.includes(reward.title)) newTitles.push(reward.title);
     }
   }
-  return { claimedLevel: lvl, edgeBoosts, powerUps };
+  const patch: Partial<UserState> = { claimedLevel: lvl, edgeBoosts, powerUps };
+  if (newTitles.length !== (prev.titles?.length || 0)) {
+    patch.titles = newTitles;
+    // Auto-equip the newest title if the user hasn't picked one yet.
+    if (!prev.activeTitle) patch.activeTitle = newTitles[newTitles.length - 1];
+  }
+  return patch;
 }
 
 // ─── Daily streak ─────────────────────────────────────────────────────
@@ -344,7 +353,17 @@ export function applyMatchResult(
   const promoPatch = applyPromoSeriesRules(prev, newEloRaw, won);
   const newElo = (promoPatch.elo as number | undefined) ?? newEloRaw;
   const newStreak = won ? prev.streak + 1 : 0;
-  const xpGain = xpForMatch(won, newStreak, false, mode);
+  let xpGain = xpForMatch(won, newStreak, false, mode);
+
+  // Comeback bonus: 2× XP on the first ranked match after a 3+ day
+  // absence. Encourages dormant users to dip back in. Triggered by
+  // lastMatchAt — applied at most once per gap (we'll set lastMatchAt
+  // below so the next match doesn't re-trigger).
+  const COMEBACK_GAP_MS = 3 * 24 * 60 * 60 * 1000;
+  const isComeback =
+    prev.lastMatchAt !== null &&
+    Date.now() - prev.lastMatchAt > COMEBACK_GAP_MS;
+  if (isComeback) xpGain *= 2;
 
   const newLifetime = {
     ...prev.lifetime,
@@ -364,7 +383,8 @@ export function applyMatchResult(
     seasonXp: prev.seasonXp + xpGain,
     matchHistory: [record, ...prev.matchHistory].slice(0, 50),
     promo: promoPatch.promo as PromoSeries | null | undefined ?? prev.promo,
-    lifetime: newLifetime
+    lifetime: newLifetime,
+    lastMatchAt: Date.now()
   };
 
   const lvl = applyLevelRewards({ ...prev, ...base });

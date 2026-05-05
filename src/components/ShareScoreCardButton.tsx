@@ -43,7 +43,7 @@ export function ShareScoreCardButton() {
         await navigator.share({
           files: [file],
           title: "My Edgify EdgeScore",
-          text: `${(user.edgeScore!.composite | 0)} EdgeScore on Edgify · play at edgify.cc`
+          text: `${(user.edgeScore!.composite | 0)} EdgeScore on Edgify · play at edgify.cc\n\n#edgify #edgescore #facetierlist #lookmaxxing`
         });
         setDone("shared");
       } else {

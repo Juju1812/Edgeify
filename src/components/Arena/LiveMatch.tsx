@@ -1608,6 +1608,19 @@ export function LiveMatch({
     setScoreboard(next);
     setPhase("between");
 
+    // Haptic ping on the round result. Short pulse for a win, longer
+    // single buzz for a loss. Silently no-ops on devices/browsers
+    // without the Vibration API.
+    const lastRound = next[next.length - 1];
+    const wonRound = lastRound.me > lastRound.opp;
+    try {
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate(wonRound ? [40, 30, 40] : [120]);
+      }
+    } catch {
+      /* vibration unsupported */
+    }
+
     const wins = next.reduce(
       (acc, r) => ({
         me: acc.me + (r.me > r.opp ? 1 : 0),
@@ -2756,7 +2769,7 @@ function Result({
         await navigator.share({
           files: [file],
           title: "Edgify Highlight",
-          text: "Just had a 1v1 face-off on Edgify."
+          text: "Just had a 1v1 face-off on Edgify.\n\n#edgify #edgescore #facetierlist"
         });
         setClipDone("shared");
       } else {
@@ -2811,7 +2824,7 @@ function Result({
           title: "I just played Edgify",
           text: `Edgify match: ${myWins}–${oppWins} vs ${opponent.username}. ${
             result.delta >= 0 ? "+" : ""
-          }${result.delta} ELO.`
+          }${result.delta} ELO.\n\n#edgify #edgescore #facetierlist`
         });
         setShareDone("shared");
       } else {

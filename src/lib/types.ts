@@ -156,6 +156,17 @@ export type UserState = {
   /** True once we've auto-fired the post-first-match Deep Analysis as a
    *  Pro-value teaser. Counts toward the user's monthly free quota. */
   autoAnalysisFired: boolean;
+
+  // ─── Titles + match cadence ──────────────────────────────────
+  /** Earnable name-plate titles unlocked via the season pass + the
+   *  ad-hoc milestones in awardOnMatch (e.g. "First Blood"). */
+  titles: string[];
+  /** Which title is currently displayed next to the username. null
+   *  to show no title plate. */
+  activeTitle: string | null;
+  /** Epoch ms of the most recent ranked / live match. Drives the
+   *  comeback-bonus rule (2x XP after 3+ days away). */
+  lastMatchAt: number | null;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -216,7 +227,10 @@ export const DEFAULT_USER: UserState = {
   },
   tutorialCompleted: false,
   changelogSeenVersion: "",
-  autoAnalysisFired: false
+  autoAnalysisFired: false,
+  titles: [],
+  activeTitle: null,
+  lastMatchAt: null
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";

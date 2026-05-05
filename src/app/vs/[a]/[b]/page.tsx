@@ -33,9 +33,26 @@ export async function generateMetadata({
 }: {
   params: { a: string; b: string };
 }): Promise<Metadata> {
+  const ogUrl = `/api/og/vs/${encodeURIComponent(params.a)}/${encodeURIComponent(
+    params.b
+  )}`;
+  const title = `${params.a} vs ${params.b} · Edgify`;
+  const description = `Head-to-head comparison of two Edgify players.`;
   return {
-    title: `${params.a} vs ${params.b} · Edgify`,
-    description: `Head-to-head comparison of two Edgify players.`
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      images: [{ url: ogUrl, width: 1200, height: 630, alt: title }]
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [ogUrl]
+    }
   };
 }
 

@@ -72,7 +72,7 @@ export function FirstScanShare({
         await navigator.share({
           files: [file],
           title: "My Edgify EdgeScore",
-          text: `${edgeScore.composite | 0} EdgeScore on Edgify · play at edgify.cc`
+          text: `${edgeScore.composite | 0} EdgeScore on Edgify · play at edgify.cc\n\n#edgify #edgescore #facetierlist #lookmaxxing`
         });
         setShareDone("shared");
       } else {
