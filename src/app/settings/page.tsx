@@ -289,6 +289,40 @@ export default function SettingsPage() {
         </Field>
       </Section>
 
+      {/* Performance */}
+      <Section title="Performance">
+        <p className="text-xs leading-relaxed text-white/55">
+          Disables backdrop blur, glow shadows, and ambient animations
+          for snappier rendering on slower devices. Layout and colors
+          are preserved.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(["auto", "on", "off"] as const).map((v) => {
+            const active = (user.lowPerfPref || "auto") === v;
+            const label =
+              v === "auto"
+                ? "Auto (detect)"
+                : v === "on"
+                  ? "Light mode"
+                  : "Full effects";
+            return (
+              <button
+                key={v}
+                onClick={() => update({ lowPerfPref: v })}
+                className={
+                  "rounded-lg border px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] transition " +
+                  (active
+                    ? "border-edge-cyan/60 bg-edge-cyan/15 text-white"
+                    : "border-white/10 bg-white/[0.02] text-white/60 hover:border-white/20 hover:text-white")
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
       {/* Accessibility */}
       <Section title="Accessibility">
         <Toggle

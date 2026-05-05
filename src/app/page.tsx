@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Footer } from "@/components/Footer";
 import { GuestBanner } from "@/components/GuestBanner";
 import { HeroBadge } from "@/components/HeroBadge";
@@ -14,27 +15,78 @@ import {
   PersonIcon,
   TrophyIcon
 } from "@/components/icons";
-import { SeasonStrip } from "@/components/SeasonStrip";
-import { Tutorial } from "@/components/Tutorial";
 import { SideRail } from "@/components/SideRail";
 import { SignInModal } from "@/components/SignInModal";
 import { SocialRow } from "@/components/SocialRow";
-import {
-  PromoSeriesWidget,
-  RankUpModal
-} from "@/components/RankUpModal";
-import { ActivityTicker } from "@/components/ActivityTicker";
-import { RankProgressWidget } from "@/components/RankProgressWidget";
-import { StreakCalendar } from "@/components/StreakCalendar";
-import { StreakLadder } from "@/components/StreakLadder";
-import { RankDecayWidget } from "@/components/RankDecayWidget";
-import { EventBanner } from "@/components/EventBanner";
-import { OnboardingChecklist } from "@/components/OnboardingChecklist";
-import { DailyQuests } from "@/components/DailyQuests";
-import { DailyLoginSpinner } from "@/components/DailyLoginSpinner";
-import { WeeklyRecap } from "@/components/WeeklyRecap";
 import { SuggestedActions } from "@/components/SuggestedActions";
 import { useUser } from "@/lib/user-context";
+
+// ─── Below-the-fold lazy chunks ─────────────────────────────────────
+// Mounting these inline grew the initial JS hot-path noticeably. They
+// don't matter for above-the-fold paint; defer the import + render so
+// slow devices get to interactive faster.
+const skeleton = (h: string) => (
+  <div className={`glass animate-pulse rounded-2xl ${h}`} />
+);
+const SeasonStrip = dynamic(
+  () => import("@/components/SeasonStrip").then((m) => m.SeasonStrip),
+  { ssr: false, loading: () => skeleton("h-16") }
+);
+const Tutorial = dynamic(
+  () => import("@/components/Tutorial").then((m) => m.Tutorial),
+  { ssr: false }
+);
+const PromoSeriesWidget = dynamic(
+  () => import("@/components/RankUpModal").then((m) => m.PromoSeriesWidget),
+  { ssr: false }
+);
+const RankUpModal = dynamic(
+  () => import("@/components/RankUpModal").then((m) => m.RankUpModal),
+  { ssr: false }
+);
+const ActivityTicker = dynamic(
+  () => import("@/components/ActivityTicker").then((m) => m.ActivityTicker),
+  { ssr: false, loading: () => skeleton("h-12") }
+);
+const RankProgressWidget = dynamic(
+  () =>
+    import("@/components/RankProgressWidget").then((m) => m.RankProgressWidget),
+  { ssr: false, loading: () => skeleton("h-32") }
+);
+const StreakCalendar = dynamic(
+  () => import("@/components/StreakCalendar").then((m) => m.StreakCalendar),
+  { ssr: false, loading: () => skeleton("h-32") }
+);
+const StreakLadder = dynamic(
+  () => import("@/components/StreakLadder").then((m) => m.StreakLadder),
+  { ssr: false, loading: () => skeleton("h-24") }
+);
+const RankDecayWidget = dynamic(
+  () => import("@/components/RankDecayWidget").then((m) => m.RankDecayWidget),
+  { ssr: false }
+);
+const EventBanner = dynamic(
+  () => import("@/components/EventBanner").then((m) => m.EventBanner),
+  { ssr: false }
+);
+const OnboardingChecklist = dynamic(
+  () =>
+    import("@/components/OnboardingChecklist").then((m) => m.OnboardingChecklist),
+  { ssr: false }
+);
+const DailyQuests = dynamic(
+  () => import("@/components/DailyQuests").then((m) => m.DailyQuests),
+  { ssr: false, loading: () => skeleton("h-32") }
+);
+const DailyLoginSpinner = dynamic(
+  () =>
+    import("@/components/DailyLoginSpinner").then((m) => m.DailyLoginSpinner),
+  { ssr: false }
+);
+const WeeklyRecap = dynamic(
+  () => import("@/components/WeeklyRecap").then((m) => m.WeeklyRecap),
+  { ssr: false }
+);
 
 export default function HomePage() {
   const { user, status, ready } = useUser();

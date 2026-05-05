@@ -233,3 +233,59 @@ body.a11y-larger-text .text-sm {
     font-size: 16px;
   }
 }
+
+/* ─── Performance Mode ────────────────────────────────────────────────
+   Activated by adding `low-perf` class to <html> (see PerfClass.tsx).
+   Goal: keep the design language readable while killing the most
+   GPU/CPU-expensive effects. We don't change colors or layout — just
+   strip filters, backdrop-filters, glow shadows, and the ambient
+   background animations. The page still looks like Edgify, just flat. */
+
+html.low-perf body::before,
+html.low-perf body::after {
+  display: none !important;
+}
+
+html.low-perf .glass,
+html.low-perf .glass-featured {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(10, 12, 24, 0.85) !important;
+  background-image: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 6px 20px -10px rgba(0, 0, 0, 0.6) !important;
+}
+
+html.low-perf .glass-hover:hover,
+html.low-perf .glass-featured-hover:hover {
+  transform: none !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Kill anything that uses backdrop-blur via Tailwind utility classes. */
+html.low-perf [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Kill the brand-edge gradient sweep animation (it repaints text). */
+html.low-perf .brand-edge {
+  animation: none !important;
+}
+
+/* Strip glow shadows on heading-card. */
+html.low-perf .heading-card {
+  text-shadow: none !important;
+}
+
+/* Reduce framer-motion / transition cost — collapses durations to ~0
+   so layout transitions don't trigger expensive paints repeatedly. */
+html.low-perf *,
+html.low-perf *::before,
+html.low-perf *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.05s !important;
+}
+

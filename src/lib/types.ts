@@ -130,6 +130,10 @@ export type UserState = {
   reducedMotion: boolean;
   /** A11y: bump font-size for users who need bigger text. */
   largerText: boolean;
+  /** Performance Mode preference. "auto" defers to device hints
+   *  (deviceMemory, hardwareConcurrency, prefers-reduced-motion).
+   *  "on" forces light theme always; "off" forces full effects. */
+  lowPerfPref: "auto" | "on" | "off";
 
   /** Profile customization v2 — accent color + banner gradient. */
   accentColor: string; // hex, e.g. "#22e9ff"
@@ -197,6 +201,7 @@ export const DEFAULT_USER: UserState = {
   pushEnabled: false,
   reducedMotion: false,
   largerText: false,
+  lowPerfPref: "auto",
   accentColor: "#22e9ff",
   bannerGradient: "linear-gradient(135deg, #22e9ff20, #ff5d8f15)",
   proUntil: null,
