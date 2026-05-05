@@ -411,6 +411,15 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
   // sum to points 4-12 (the part of the jaw chain that's actually below
   // the gonial angle); points 0-3 and 13-16 sit above the cheekbone and
   // confound the metric with cheek shape.
+  //
+  // The base curvature alone over-rewards faces that have sharp gonial
+  // corners but soft / submental tissue ("double chin"), because the
+  // 68-point face contour still snaps to the visible jaw edge regardless
+  // of fullness below it. We post-multiply by a penalty derived from
+  // chin sharpness and cheek-vs-gonial taper (both computed below) so
+  // a heavy lower face can't mog a lean one on this metric. Final
+  // weighting: jawlineDefinition = baseCurvature × (1 − chinPenalty
+  // − taperPenalty).  See block below for the actual modifier values.
   let jawCurvature = 0;
   for (let i = 5; i < 12; i++) {
     const prev = points[i - 1];
@@ -425,7 +434,7 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
     jawCurvature += d;
   }
   // Lower jaw curvature 7-segment range: ~0.5 (very soft) to 2.4 (sharp).
-  const jawlineDefinition = clamp01((jawCurvature - 0.5) / 1.9);
+  const jawCurvatureScore = clamp01((jawCurvature - 0.5) / 1.9);
 
   // ─── Canthal tilt ─────────────────────────────────────────────────────
   // Use the RAW (un-frontalized) points to measure canthal tilt — but
@@ -461,7 +470,10 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
   const cheekboneProm = clamp01((cheekRatio - 1.05) / 0.35);
 
   // ─── Face fat (facial fullness) ───────────────────────────────────────
-  // Three-signal blend so no single noisy measurement dominates:
+  // Three-signal blend, weighted toward chin sharpness because that's
+  // the most direct double-chin / submental-fullness signal we get
+  // from 2D landmarks. (Taper and aspect can stay near-normal even on
+  // someone with a clear double chin — the chin angle is the giveaway.)
   //   1. Taper: 1 - (gonial_w / cheek_w). Lean faces taper hard.
   //   2. Aspect: face_height / cheek_w. Lean faces are elongated.
   //   3. Chin sharpness: angle at the chin point 8 between segments 6→8
@@ -482,8 +494,24 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
   // Sharper chin → larger turning angle. ~0.3 (round) .. 1.2 (pointed).
   const chinLeanness = clamp01((chinAngle - 0.3) / 0.9);
 
-  const leanness = 0.45 * taperLeanness + 0.30 * aspectLeanness + 0.25 * chinLeanness;
+  // Reweighted: chin sharpness is now 50% (was 25%) — it's the clearest
+  // submental-fullness signal. Taper drops from 45% to 30%, aspect from
+  // 30% to 20%.
+  const leanness =
+    0.30 * taperLeanness + 0.20 * aspectLeanness + 0.50 * chinLeanness;
   const faceFat = clamp01(1 - leanness);
+
+  // ─── Jawline penalty: round chin / low taper drag the jawline score
+  // down, even if the bony contour curvature is sharp. Without this a
+  // heavy lower face with visible gonial corners can score 70 on
+  // jawline definition while having a double chin — wrong.
+  //   chinPenalty: up to 45% off when chin is fully round.
+  //   taperPenalty: up to 18% off when cheek-to-gonial taper is flat.
+  const chinPenalty = (1 - chinLeanness) * 0.45;
+  const taperPenalty = (1 - taperLeanness) * 0.18;
+  const jawlineDefinition = clamp01(
+    jawCurvatureScore * (1 - chinPenalty - taperPenalty)
+  );
 
   // ─── Golden-ratio fit ─────────────────────────────────────────────────
   // Multi-ratio comparison so a single mismeasured landmark doesn't
@@ -524,16 +552,17 @@ export function computeEdgeScore(rawPoints: Pt[]): EdgeScoreBreakdown {
   // Weighted sum, then scale to 0..100. Tilt contributes by absolute value
   // (deviation from neutral is interesting either direction). Face fat
   // contributes negatively (leaner faces score higher in this game).
-  // Weights re-tuned: symmetry and jawline are the most reliable signals
-  // at 2D, so they get the most weight; goldenRatio is the noisiest.
+  // Weights re-tuned: face-fat bumped from 0.16 → 0.24 because facial
+  // fullness has a larger perceptual impact than the previous weight
+  // implied; symmetry and tilt drop slightly to make room.
   const composite =
     100 *
-    (0.28 * symmetry +
+    (0.26 * symmetry +
       0.22 * jawlineDefinition +
-      0.10 * (1 - Math.abs(canthalTilt - 0.4)) + // ~5° positive tilt is "ideal"
-      0.14 * cheekboneProm +
-      0.10 * goldenRatio +
-      0.16 * (1 - faceFat));
+      0.08 * (1 - Math.abs(canthalTilt - 0.4)) + // ~5° positive tilt is "ideal"
+      0.12 * cheekboneProm +
+      0.08 * goldenRatio +
+      0.24 * (1 - faceFat));
 
   return {
     symmetry,

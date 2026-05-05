@@ -67,10 +67,10 @@ function syntheticScore(): EdgeScoreBreakdown {
     100 *
     (0.26 * symmetry +
       0.22 * jawlineDefinition +
-      0.12 * (1 - Math.abs(canthalTilt - 0.4)) +
-      0.13 * cheekboneProm +
-      0.12 * goldenRatio +
-      0.15 * (1 - faceFat));
+      0.08 * (1 - Math.abs(canthalTilt - 0.4)) +
+      0.12 * cheekboneProm +
+      0.08 * goldenRatio +
+      0.24 * (1 - faceFat));
   return {
     symmetry,
     jawlineDefinition,
