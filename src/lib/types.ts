@@ -8,7 +8,7 @@ export type EdgeScoreBreakdown = {
   composite: number;         // 0..100 weighted
 };
 
-export type GameMode = "bo3" | "bo5" | "sudden-death" | "rapid-fire";
+export type GameMode = "bo1" | "bo3" | "bo5" | "sudden-death" | "rapid-fire";
 
 export type PowerUpId = "boost" | "shield" | "mulligan" | "timeStop" | "critical";
 

@@ -34,6 +34,9 @@ function PrivateRoomInner() {
   const { user, status } = useUser();
   const params = useSearchParams();
   const initialCode = params.get("code")?.toUpperCase() || "";
+  // Spectator mode — read-only view of an in-progress bracket.
+  // Activated by `?spectate=1`. Guests can spectate without signing in.
+  const isSpectator = params.get("spectate") === "1";
 
   const [code, setCode] = useState<string | null>(initialCode || null);
   const [enteredCode, setEnteredCode] = useState("");
@@ -171,7 +174,8 @@ function PrivateRoomInner() {
   );
 
   // ─── Gates ────────────────────────────────────────────────────────
-  if (status === "guest") {
+  // Guests can spectate but not host/join. Anyone signed in passes.
+  if (status === "guest" && !isSpectator) {
     return <Locked onCta={() => {}} />;
   }
 
@@ -239,6 +243,12 @@ function PrivateRoomInner() {
 
   return (
     <Shell>
+      {isSpectator && (
+        <div className="rounded-xl border border-edge-cyan/30 bg-edge-cyan/[0.06] px-4 py-3 text-xs uppercase tracking-[0.22em] text-edge-cyan">
+          👁 Spectating · live bracket updates every 2s
+        </div>
+      )}
+
       <Bracket tourney={tourney} myIdx={myIdx} />
 
       {tourney.state !== "lobby" && (
@@ -247,7 +257,7 @@ function PrivateRoomInner() {
         </div>
       )}
 
-      {tourney.state === "lobby" && (
+      {!isSpectator && tourney.state === "lobby" && (
         <Lobby
           tourney={tourney}
           isHost={tourney.host === user.username}
@@ -266,7 +276,7 @@ function PrivateRoomInner() {
         />
       )}
 
-      {tourney.state === "running" && (
+      {!isSpectator && tourney.state === "running" && (
         <ActiveMatch
           tourney={tourney}
           myIdx={myIdx}
@@ -277,6 +287,24 @@ function PrivateRoomInner() {
 
       {tourney.state === "done" && tourney.champion !== null && (
         <Champion tourney={tourney} myIdx={myIdx} />
+      )}
+
+      {isSpectator && tourney.state === "lobby" && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-5 text-center">
+          <p className="label-xs text-white/45">Lobby phase</p>
+          <p className="mt-2 text-sm text-white/65">
+            Waiting for the host to start the tournament.{" "}
+            {tourney.players.length} of 4 players joined.
+          </p>
+        </div>
+      )}
+      {isSpectator && tourney.state === "running" && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-5 text-center">
+          <p className="label-xs text-edge-cyan">Match in progress</p>
+          <p className="mt-2 text-sm text-white/65">
+            The bracket above updates as players report results.
+          </p>
+        </div>
       )}
     </Shell>
   );
@@ -397,12 +425,31 @@ function Lobby({
       <p className="mt-2 font-mono text-4xl font-bold tracking-[0.32em] text-white">
         {tourney.code}
       </p>
-      <button
-        onClick={onCopy}
-        className="mt-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-1.5 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
-      >
-        {copied ? "Copied ✓" : "Copy"}
-      </button>
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={onCopy}
+          className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-1.5 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
+        >
+          {copied ? "Copied ✓" : "Copy code"}
+        </button>
+        <button
+          onClick={() => {
+            try {
+              const url =
+                typeof window !== "undefined"
+                  ? `${window.location.origin}/private?code=${tourney.code}&spectate=1`
+                  : `/private?code=${tourney.code}&spectate=1`;
+              navigator.clipboard.writeText(url);
+            } catch {
+              /* */
+            }
+          }}
+          className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.06] px-4 py-1.5 text-[11px] uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/70 hover:bg-edge-cyan/[0.14]"
+          title="Copy a watch-only link friends can open without signing in"
+        >
+          Copy spectate URL
+        </button>
+      </div>
 
       <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {Array.from({ length: tourney.size }).map((_, i) => (

@@ -39,6 +39,7 @@ export function xpBreakdown(args: {
     ? Math.min(50, Math.max(0, args.streakAfter - 1) * 10)
     : 0;
   const modeMults: Record<GameMode, number> = {
+    "bo1": 0.5,
     "bo3": 1.0,
     "bo5": 1.4,
     "sudden-death": 0.6,

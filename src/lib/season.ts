@@ -65,6 +65,7 @@ export function xpForMatch(
   const base = won ? 100 : 30;
   const streakBonus = won ? Math.min(50, Math.max(0, streakAfter - 1) * 10) : 0;
   const modeMult: Record<GameMode, number> = {
+    "bo1": 0.5,        // single round, half XP
     "bo3": 1.0,
     "bo5": 1.4,        // longer match, more XP
     "sudden-death": 0.6, // shorter, less XP

@@ -20,7 +20,7 @@ import { Confetti } from "@/components/Confetti";
 import { DeepAnalysis } from "@/components/Arena/DeepAnalysis";
 import { OwnerBadge } from "@/components/OwnerBadge";
 import { drawArFilter } from "@/lib/ar-filters";
-import type { EdgeScoreBreakdown, MatchRecord } from "@/lib/types";
+import type { EdgeScoreBreakdown, GameMode, MatchRecord } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
 type FaceApiNS = typeof import("face-api.js");
@@ -56,7 +56,7 @@ type LivePhase =
   | "error";
 
 type LiveMsg =
-  | { type: "hello"; username: string; elo: number }
+  | { type: "hello"; username: string; elo: number; mode?: GameMode }
   | { type: "round"; idx: number }
   | { type: "score-tick"; idx: number; value: number } // running score during scan
   | { type: "score"; idx: number; value: number }      // final score for the round
@@ -64,6 +64,22 @@ type LiveMsg =
   | { type: "reaction"; emoji: string }                // emoji burst from sender
   | { type: "chat"; text: string }                     // in-match text chat
   | { type: "leave" };
+
+function matchLengthFor(
+  mode: GameMode
+): { winThreshold: number; maxRounds: number } {
+  switch (mode) {
+    case "bo1":
+      return { winThreshold: 1, maxRounds: 1 };
+    case "bo5":
+      return { winThreshold: 3, maxRounds: 5 };
+    case "bo3":
+    case "sudden-death":
+    case "rapid-fire":
+    default:
+      return { winThreshold: 2, maxRounds: 3 };
+  }
+}
 
 const DEFAULT_REACTIONS = ["🔥", "💀", "👑", "😂", "🗿", "🤡"];
 type ReactionPing = { id: number; emoji: string; from: "me" | "opp" };
@@ -484,6 +500,12 @@ export function LiveMatch({
   // Auto-rematch — if true, after a match ends we automatically queue
   // for another random opponent rather than returning to the lobby.
   const [autoRematch, setAutoRematch] = useState(false);
+  // Match mode — only meaningful in private/hosted matches. Random
+  // queue is fixed to bo3 since both players need to agree on the
+  // win condition before they peer up. Host's selection wins;
+  // joiners' clients overwrite their local matchMode from the
+  // hello message.
+  const [matchMode, setMatchMode] = useState<GameMode>("bo3");
 
   function activateBoostNow() {
     const r = roundRef.current;
@@ -956,6 +978,9 @@ export function LiveMatch({
 
   async function startRandomMatch() {
     try {
+      // Random queue can't negotiate modes — both clients have to
+      // agree on the same bo3 win-condition before they peer up.
+      setMatchMode("bo3");
       setPhase("matchmaking");
       setSearchSeconds(0);
       matchedRef.current = false;
@@ -1145,7 +1170,12 @@ export function LiveMatch({
   function wireDataConnection(conn: NonNullable<typeof dataConnRef.current>) {
     dataConnRef.current = conn;
     conn.on("open", () => {
-      sendMsg({ type: "hello", username: user.username || "PLAYER", elo: user.elo });
+      sendMsg({
+        type: "hello",
+        username: user.username || "PLAYER",
+        elo: user.elo,
+        mode: isHostRef.current ? matchMode : undefined
+      });
     });
     conn.on("data", (data) => handleMsg(data as LiveMsg));
     conn.on("close", () => {
@@ -1243,6 +1273,10 @@ export function LiveMatch({
     switch (msg.type) {
       case "hello":
         setOpponent({ username: msg.username, elo: msg.elo });
+        // Guest accepts host's mode; host ignores guest's hello mode.
+        if (msg.mode && !isHostRef.current) {
+          setMatchMode(msg.mode);
+        }
         setPhase("vs");
         playWalkout();
         // Host kicks off round 0 after a brief VS reveal
@@ -1655,7 +1689,15 @@ export function LiveMatch({
 
     transitionTimeoutRef.current = window.setTimeout(() => {
       transitionTimeoutRef.current = null;
-      const matchOver = wins.me >= 2 || wins.opp >= 2 || next.length === 3;
+      // Win-condition is mode-derived: bo1 → first to 1 (or 1 round
+      // total), bo3 → first to 2 (or 3 rounds), bo5 → first to 3
+      // (or 5). Sudden-death and rapid-fire fall back to bo3 timing
+      // — those modes are about pace, not match length.
+      const { winThreshold, maxRounds } = matchLengthFor(matchMode);
+      const matchOver =
+        wins.me >= winThreshold ||
+        wins.opp >= winThreshold ||
+        next.length >= maxRounds;
       if (matchOver) {
         const won = wins.me >= wins.opp;
         // BOTH sides finalize locally from the visible scoreboard. Host
@@ -1705,7 +1747,7 @@ export function LiveMatch({
         me: r.me,
         opp: r.opp
       })),
-      mode: "bo3"
+      mode: matchMode
     };
 
     update((prev) =>
@@ -1713,7 +1755,7 @@ export function LiveMatch({
         won,
         rawEloDelta: delta,
         record,
-        mode: "bo3"
+        mode: matchMode
       })
     );
 
@@ -1822,6 +1864,8 @@ export function LiveMatch({
           ownedBoosts={user.edgeBoosts}
           autoRematch={autoRematch}
           setAutoRematch={setAutoRematch}
+          matchMode={matchMode}
+          setMatchMode={setMatchMode}
         />
       )}
 
@@ -1896,6 +1940,7 @@ export function LiveMatch({
           boostsOwned={user.edgeBoosts}
           boostUsedThisRound={boostRounds.has(round)}
           boostFlashId={boostFlashId}
+          matchMode={matchMode}
         />
       )}
 
@@ -1921,7 +1966,9 @@ function Lobby({
   setValue,
   ownedBoosts,
   autoRematch,
-  setAutoRematch
+  setAutoRematch,
+  matchMode,
+  setMatchMode
 }: {
   onRandom: () => void;
   onHost: () => void;
@@ -1931,6 +1978,8 @@ function Lobby({
   ownedBoosts: number;
   autoRematch: boolean;
   setAutoRematch: (v: boolean) => void;
+  matchMode: GameMode;
+  setMatchMode: (m: GameMode) => void;
 }) {
   const { user } = useUser();
   // Recent opponents from match history — top 3 most-recent ranked.
@@ -1949,6 +1998,37 @@ function Lobby({
         />
         Auto-rematch after each match
       </label>
+
+      {/* Match length selector — only meaningful for "Host private". The
+          random-queue path always uses bo3 since the queue can't
+          negotiate modes. The host's selection propagates to joiners
+          through the hello message. */}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+        <p className="label-xs mb-2">Match length (private only)</p>
+        <div className="flex flex-wrap gap-2">
+          {(["bo1", "bo3", "bo5"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMatchMode(m)}
+              className={
+                "rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition " +
+                (matchMode === m
+                  ? "border-edge-cyan/60 bg-edge-cyan/15 text-edge-cyan"
+                  : "border-white/10 bg-black/20 text-white/55 hover:border-white/20 hover:text-white")
+              }
+              title={
+                m === "bo1"
+                  ? "Single decisive round, ½ XP — quickest match"
+                  : m === "bo3"
+                    ? "First to 2 wins (default)"
+                    : "First to 3 wins, +40% XP"
+              }
+            >
+              {m === "bo1" ? "Bo1 · 1 round" : m === "bo3" ? "Bo3 · default" : "Bo5 · long"}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Recent opponents — quick rematch row */}
       {recent.length > 0 && (
@@ -2244,7 +2324,8 @@ function Arena({
   onActivateBoost,
   boostsOwned,
   boostUsedThisRound,
-  boostFlashId
+  boostFlashId,
+  matchMode
 }: {
   mineRef: (el: HTMLVideoElement | null) => void;
   oppRef: (el: HTMLVideoElement | null) => void;
@@ -2273,6 +2354,7 @@ function Arena({
   boostsOwned?: number;
   boostUsedThisRound?: boolean;
   boostFlashId?: number;
+  matchMode?: GameMode;
 }) {
   const { user } = useUser();
   const myRank = rankFromElo(user.elo);
@@ -2380,7 +2462,7 @@ function Arena({
             {wins.me}–{wins.opp}
           </div>
           <span className="text-[9px] uppercase tracking-[0.22em] text-white/40">
-            BO3
+            {(matchMode || "bo3").toUpperCase()}
           </span>
         </div>
 
