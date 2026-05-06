@@ -196,6 +196,61 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Custom rank icon (Pro) */}
+      <Section title="Custom rank icon">
+        <p className="text-xs leading-relaxed text-white/55">
+          Replaces the default rank emoji on your profile, leaderboard
+          row, and match cards. Pro feature.
+        </p>
+        {(() => {
+          const pro = isPro(user);
+          const RANK_ICONS = [
+            "🦁","🐯","🐺","🦅","🐉","👹","🦈","🐍",
+            "👻","💀","🤖","👑","💎","⚡","🔥","🌟",
+            "🎭","🃏","🎯","🎮","🕷️","🌑","🩸","⚔️"
+          ];
+          if (!pro) {
+            return (
+              <p className="rounded-lg border border-edge-coral/30 bg-edge-coral/[0.06] p-3 text-[11px] uppercase tracking-[0.22em] text-edge-coral">
+                <Link href="/pricing" className="hover:underline">
+                  Unlock with Edgify Pro →
+                </Link>
+              </p>
+            );
+          }
+          return (
+            <div className="grid grid-cols-8 gap-2 sm:grid-cols-12">
+              <button
+                onClick={() => update({ customRankIcon: null })}
+                className={
+                  "flex h-10 items-center justify-center rounded-lg border text-[10px] uppercase tracking-[0.18em] transition " +
+                  (user.customRankIcon === null
+                    ? "border-edge-cyan/60 bg-edge-cyan/[0.08] text-edge-cyan"
+                    : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/20")
+                }
+                title="Use default rank emoji"
+              >
+                Default
+              </button>
+              {RANK_ICONS.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => update({ customRankIcon: e })}
+                  className={
+                    "flex h-10 items-center justify-center rounded-lg border text-2xl transition " +
+                    (user.customRankIcon === e
+                      ? "border-edge-cyan/60 bg-edge-cyan/[0.08]"
+                      : "border-white/10 bg-white/[0.02] hover:border-white/20")
+                  }
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+      </Section>
+
       {/* Audio + camera */}
       <Section title="Audio & Camera">
         <Field label={`Sound volume: ${Math.round(user.soundVolume * 100)}%`}>
@@ -287,6 +342,25 @@ export default function SettingsPage() {
             ))}
           </div>
         </Field>
+      </Section>
+
+      {/* Tutorial replay */}
+      <Section title="Tutorial">
+        <p className="text-xs leading-relaxed text-white/55">
+          Re-run the introductory walkthrough. Useful if you want to
+          show a friend, or just refresh on the basics.
+        </p>
+        <button
+          onClick={() => {
+            update({ tutorialCompleted: false });
+            toast("Tutorial reset — head back to the lobby to view.", {
+              kind: "success"
+            });
+          }}
+          className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.08] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/70 hover:bg-edge-cyan/[0.16]"
+        >
+          Replay tutorial
+        </button>
       </Section>
 
       {/* Performance */}

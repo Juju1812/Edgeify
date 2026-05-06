@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { NearestScores } from "@/components/NearestScores";
+import { SkillCalibration } from "@/components/Lab/SkillCalibration";
 import { FaceScanner, type ScanResult } from "@/components/Lab/FaceScanner";
 import { ScoreReveal } from "@/components/Lab/ScoreReveal";
 import { FirstScanShare } from "@/components/Lab/FirstScanShare";
@@ -165,6 +166,7 @@ function SavedScan() {
         </div>
       </div>
     </div>
+    <SkillCalibration />
     <NearestScores />
     </div>
   );

@@ -171,6 +171,10 @@ export type UserState = {
    *  before the daily streak resets to zero. Bought with Edge Boosts
    *  (3 boosts → 1 saver). Capped at 1 active at a time. */
   streakSavers: number;
+  /** Pro-only: replaces the default rank emoji on all surfaces with a
+   *  user-picked emoji. Falls back to the rank's default emoji when
+   *  null or when the user is not Pro. */
+  customRankIcon: string | null;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -235,7 +239,8 @@ export const DEFAULT_USER: UserState = {
   titles: [],
   activeTitle: null,
   lastMatchAt: null,
-  streakSavers: 0
+  streakSavers: 0,
+  customRankIcon: null
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";

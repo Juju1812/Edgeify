@@ -1308,12 +1308,22 @@ export function FaceScanner({
           {progress >= 0.4 && blinks === 0 && (
             <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
               <span>{challengePrompt}</span>
-              <button
-                onClick={() => liveScore && finalize(liveScore, true)}
-                className="rounded-md border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"
-              >
-                Skip liveness →
-              </button>
+              {/* Top-tier players (ELO ≥ 1600 — Diamond+) can't skip
+                  liveness; the integrity check matters more the higher
+                  you climb. Below that, allow the bypass so a slow
+                  blink-detection doesn't trap users. */}
+              {user.elo < 1600 ? (
+                <button
+                  onClick={() => liveScore && finalize(liveScore, true)}
+                  className="rounded-md border border-mog-violet/40 bg-mog-violet/10 px-3 py-1.5 text-mog-violet transition hover:border-mog-violet hover:bg-mog-violet/20 hover:text-white"
+                >
+                  Skip liveness →
+                </button>
+              ) : (
+                <span className="rounded-md border border-amber-400/30 bg-amber-500/[0.06] px-3 py-1.5 text-amber-300">
+                  Required at your tier
+                </span>
+              )}
             </div>
           )}
         </div>

@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { renderScoreCard } from "@/lib/score-card";
 import { rankFromElo } from "@/lib/rank";
 import type { EdgeScoreBreakdown } from "@/lib/types";
+import { useUser } from "@/lib/user-context";
+import { useToast } from "@/lib/toast-context";
+import { isPro } from "@/lib/pro";
 
 /**
  * Auto-shown right after a fresh scan completes. Renders a 1080x1920
@@ -27,11 +30,35 @@ export function FirstScanShare({
   elo: number;
   onClose: () => void;
 }) {
+  const { user, update } = useUser();
+  const { toast } = useToast();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [shareDone, setShareDone] = useState<"shared" | "saved" | null>(null);
   const [busy, setBusy] = useState(false);
   const rank = rankFromElo(elo);
+
+  /**
+   * One-time 24h Pro trial granted on first successful share. Skipped if
+   * the user is already Pro (paid) or has already redeemed the trial
+   * (proUntil set above the share window). Localized: doesn't touch
+   * Stripe — purely a client-side proUntil bump. The webhook from a
+   * real subscription will overwrite this if/when they upgrade.
+   */
+  function maybeGrantTrial() {
+    const TRIAL_FLAG_KEY = "edgify:trial:firstShare:v1";
+    if (typeof localStorage !== "undefined") {
+      if (localStorage.getItem(TRIAL_FLAG_KEY)) return;
+      localStorage.setItem(TRIAL_FLAG_KEY, "1");
+    }
+    if (isPro(user)) return;
+    const until = Date.now() + 24 * 60 * 60 * 1000;
+    update({ proUntil: until });
+    toast("✨ 24h Pro trial unlocked — every filter, unlimited Deep Analysis", {
+      kind: "success",
+      ttl: 6500
+    });
+  }
 
   // Render the card on mount.
   useEffect(() => {
@@ -75,6 +102,7 @@ export function FirstScanShare({
           text: `${edgeScore.composite | 0} EdgeScore on Edgify · play at edgify.cc\n\n#edgify #edgescore #facetierlist #lookmaxxing`
         });
         setShareDone("shared");
+        maybeGrantTrial();
       } else {
         downloadBlob();
       }
@@ -126,6 +154,11 @@ export function FirstScanShare({
             <p className="mt-2 text-xs text-white/55">
               Auto-rendered card. Post it, then come back to climb.
             </p>
+            {!isPro(user) && (
+              <p className="mt-2 inline-block rounded-full border border-edge-coral/30 bg-edge-coral/[0.06] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-edge-coral">
+                ✨ Share to unlock 24h Pro trial
+              </p>
+            )}
           </div>
 
           <div className="glass overflow-hidden rounded-2xl bg-black/30">

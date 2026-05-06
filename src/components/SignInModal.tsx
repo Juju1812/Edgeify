@@ -18,8 +18,13 @@ export function SignInModal({
   const [mode, setMode] = useState<Mode>("signup");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [over18, setOver18] = useState(false);
+  const [birthYear, setBirthYear] = useState<string>("");
   const [consent, setConsent] = useState(false);
+  const currentYear = new Date().getUTCFullYear();
+  const yearNum = parseInt(birthYear, 10);
+  const age = isNaN(yearNum) ? 0 : currentYear - yearNum;
+  const validYear = !isNaN(yearNum) && yearNum >= 1900 && yearNum <= currentYear;
+  const over18 = validYear && age >= 18;
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -28,7 +33,7 @@ export function SignInModal({
       setMode("signup");
       setName("");
       setPassword("");
-      setOver18(false);
+      setBirthYear("");
       setConsent(false);
       setErr(null);
       setBusy(false);
@@ -54,7 +59,8 @@ export function SignInModal({
     if (password.length < 6) return setErr("Password must be at least 6 characters.");
 
     if (mode === "signup") {
-      if (!over18) return setErr("You must be 18 or older to play.");
+      if (!validYear) return setErr("Enter your year of birth (4 digits).");
+      if (age < 18) return setErr("You must be 18 or older to play.");
       if (!consent) return setErr("Please acknowledge the EdgeScore disclaimer.");
     }
 
@@ -170,16 +176,37 @@ export function SignInModal({
 
               {mode === "signup" && (
                 <>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/5 bg-black/30 p-3 text-xs leading-relaxed text-white/70 transition hover:border-white/10">
-                    <input
-                      type="checkbox"
-                      checked={over18}
-                      onChange={(e) => setOver18(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-edge-cyan"
-                    />
-                    <span>
-                      I am <span className="text-white">18 or older</span>.
+                  <label className="flex items-center gap-3 rounded-lg border border-white/5 bg-black/30 p-3 text-xs text-white/70">
+                    <span className="shrink-0 uppercase tracking-[0.18em]">
+                      Birth year
                     </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="YYYY"
+                      value={birthYear}
+                      onChange={(e) =>
+                        setBirthYear(
+                          e.target.value.replace(/[^0-9]/g, "").slice(0, 4)
+                        )
+                      }
+                      min={1900}
+                      max={currentYear}
+                      className="w-24 rounded-md border border-white/10 bg-black/40 px-3 py-1.5 text-center stat-mono text-base text-white outline-none focus:border-edge-cyan"
+                    />
+                    {validYear && (
+                      <span
+                        className={
+                          age >= 18
+                            ? "text-emerald-300"
+                            : "text-rose-300"
+                        }
+                      >
+                        {age >= 18
+                          ? `✓ ${age} yr`
+                          : `${age} — must be 18+`}
+                      </span>
+                    )}
                   </label>
 
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/5 bg-black/30 p-3 text-xs leading-relaxed text-white/70 transition hover:border-white/10">
