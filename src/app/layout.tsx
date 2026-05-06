@@ -6,6 +6,7 @@ import { BugReportButton } from "@/components/BugReportButton";
 import { PerfClass } from "@/components/PerfClass";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { AutoCountry } from "@/components/AutoCountry";
+import { RefCapture } from "@/components/ReferralLink";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -73,6 +74,7 @@ export default function RootLayout({
           <ToastProvider>
             <PerfClass />
             <AutoCountry />
+            <RefCapture />
             <div className="relative z-10">{children}</div>
             <KeyboardShortcuts />
             <BugReportButton />

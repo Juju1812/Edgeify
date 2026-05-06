@@ -151,9 +151,18 @@ export default function FriendsPage() {
           <div className="glass h-32 animate-pulse rounded-2xl" />
         ) : friends.length === 0 ? (
           <div className="glass rounded-2xl px-6 py-12 text-center">
-            <p className="text-sm text-white/50">No friends yet.</p>
-            <p className="mt-1 text-xs text-white/30">
-              Add by callsign above. They&apos;ll appear here with online status.
+            <div className="text-4xl">🪐</div>
+            <p className="mt-3 text-sm font-semibold text-white/85">
+              No friends yet.
+            </p>
+            <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-white/50">
+              Add by callsign above — once both of you are friends, you can
+              see each other online, queue private matches via{" "}
+              <span className="text-white/70">/play/[username]</span>, and
+              get notified when they win or lose a ranked match.
+            </p>
+            <p className="mt-3 text-[10px] uppercase tracking-[0.32em] text-edge-cyan">
+              💡 Tip · share your profile link to invite a friend
             </p>
           </div>
         ) : (

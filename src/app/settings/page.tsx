@@ -12,6 +12,7 @@ import { AR_FILTERS } from "@/lib/ar-filters";
 import { FREE_AR_FILTERS, isPro } from "@/lib/pro";
 import { VoiceNoteRecorder } from "@/components/VoiceNoteRecorder";
 import { EmoteLoadoutPicker } from "@/components/EmoteLoadoutPicker";
+import { ReferralLink } from "@/components/ReferralLink";
 
 const AR_COLORS: { id: ArColorId; label: string; hex: string }[] = [
   { id: "green", label: "Lime", hex: "#4ade80" },
@@ -342,6 +343,14 @@ export default function SettingsPage() {
             ))}
           </div>
         </Field>
+
+        {/* Theme builder (Pro): full hex color picker + custom gradient stops. */}
+        <ProThemeBuilder />
+      </Section>
+
+      {/* Referral link */}
+      <Section title="Invite friends">
+        <ReferralLink />
       </Section>
 
       {/* Tutorial replay */}
@@ -497,5 +506,79 @@ function Toggle({
         className="h-4 w-4 accent-mog-violet"
       />
     </label>
+  );
+}
+
+function ProThemeBuilder() {
+  const { user, update } = useUser();
+  const pro = isPro(user);
+
+  // Best-effort parse of the existing gradient so the stop pickers
+  // initialize from the user's current banner. Falls back to brand
+  // defaults if the string isn't a recognizable two-stop linear-gradient.
+  const stops = (() => {
+    const m = user.bannerGradient.match(/#([0-9a-f]{6,8})/gi);
+    return {
+      a: m?.[0] ? "#" + m[0].replace("#", "").slice(0, 6) : "#22e9ff",
+      b: m?.[1] ? "#" + m[1].replace("#", "").slice(0, 6) : "#ff5d8f"
+    };
+  })();
+
+  if (!pro) {
+    return (
+      <div className="rounded-lg border border-edge-coral/30 bg-edge-coral/[0.06] p-3 text-[11px] uppercase tracking-[0.22em] text-edge-coral">
+        <Link href="/pricing" className="hover:underline">
+          Edgify Pro · custom hex colors + gradient builder →
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-edge-cyan/25 bg-edge-cyan/[0.04] p-4">
+      <p className="label-xs text-edge-cyan">Pro · custom theme</p>
+      <Field label="Accent (full hex)">
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={user.accentColor}
+            onChange={(e) => update({ accentColor: e.target.value })}
+            className="h-9 w-12 cursor-pointer rounded border border-white/10 bg-transparent"
+          />
+          <code className="rounded bg-black/40 px-2 py-1 text-xs text-white/80">
+            {user.accentColor}
+          </code>
+        </div>
+      </Field>
+      <Field label="Banner gradient stops">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="color"
+            value={stops.a}
+            onChange={(e) =>
+              update({
+                bannerGradient: `linear-gradient(135deg, ${e.target.value}30, ${stops.b}25)`
+              })
+            }
+            className="h-9 w-12 cursor-pointer rounded border border-white/10 bg-transparent"
+          />
+          <span className="text-white/35">→</span>
+          <input
+            type="color"
+            value={stops.b}
+            onChange={(e) =>
+              update({
+                bannerGradient: `linear-gradient(135deg, ${stops.a}30, ${e.target.value}25)`
+              })
+            }
+            className="h-9 w-12 cursor-pointer rounded border border-white/10 bg-transparent"
+          />
+          <div
+            className="h-9 flex-1 rounded-md border border-white/10"
+            style={{ background: user.bannerGradient }}
+          />
+        </div>
+      </Field>
+    </div>
   );
 }
