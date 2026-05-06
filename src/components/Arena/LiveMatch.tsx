@@ -1244,6 +1244,7 @@ export function LiveMatch({
       case "hello":
         setOpponent({ username: msg.username, elo: msg.elo });
         setPhase("vs");
+        playWalkout();
         // Host kicks off round 0 after a brief VS reveal
         if (isHostRef.current) {
           setTimeout(() => beginRound(0), 2500);
@@ -1306,6 +1307,29 @@ export function LiveMatch({
     kickVideosToPlay();
     playSfx("matchStart");
     runScanLoop(idx);
+  }
+
+  /**
+   * Plays the user's saved walkout clip when they enter the VS reveal.
+   * Local-only — we don't broadcast audio over the data channel. Caps
+   * playback at 5 seconds so a long clip can't drown out the match.
+   */
+  function playWalkout() {
+    if (typeof window === "undefined" || !user.walkoutAudio) return;
+    try {
+      const a = new Audio(user.walkoutAudio);
+      a.volume = Math.min(1, user.soundVolume ?? 0.7);
+      a.play().catch(() => {});
+      window.setTimeout(() => {
+        try {
+          a.pause();
+        } catch {
+          /* */
+        }
+      }, 5000);
+    } catch {
+      /* malformed data URL */
+    }
   }
 
   /**

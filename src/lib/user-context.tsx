@@ -297,7 +297,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // Debounced server sync when authed.
   useEffect(() => {
     if (!ready || !authedRemote || !tokenRef.current) return;
-    const serialized = JSON.stringify(user);
+    // Strip fields that are deliberately client-only before sync — they
+    // would blow KV bandwidth (walkoutAudio can be ~1MB) without ever
+    // being read by the server-side leaderboard summary.
+    const { walkoutAudio: _strip, ...syncable } = user;
+    void _strip;
+    const serialized = JSON.stringify(syncable);
     if (serialized === lastSyncedRef.current) return;
 
     if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);

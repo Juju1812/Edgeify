@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { Redis } from "@upstash/redis";
 import { ReplayTheatre } from "@/components/ReplayTheatre";
+import { ReplayReactions } from "@/components/ReplayReactions";
 
 export const runtime = "edge";
 export const revalidate = 60;
@@ -41,6 +42,7 @@ export default async function ReplayPage({
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 pt-10 pb-16">
       <ReplayTheatre replay={r} />
+      <ReplayReactions replayId={r.id} />
       <Footer />
     </main>
   );

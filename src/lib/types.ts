@@ -175,6 +175,11 @@ export type UserState = {
    *  user-picked emoji. Falls back to the rank's default emoji when
    *  null or when the user is not Pro. */
   customRankIcon: string | null;
+  /** Walkout audio — base64 data URL of a short clip (≤ 5s) that
+   *  plays locally when entering a match. Uploaded by the user, kept
+   *  client-only (NOT synced to the server) since audio data would
+   *  blow KV bandwidth and copyright rules apply to user uploads. */
+  walkoutAudio: string | null;
 };
 
 export const DEFAULT_USER: UserState = {
@@ -240,7 +245,8 @@ export const DEFAULT_USER: UserState = {
   activeTitle: null,
   lastMatchAt: null,
   streakSavers: 0,
-  customRankIcon: null
+  customRankIcon: null,
+  walkoutAudio: null
 };
 
 export type UserStatus = "guest" | "auth-no-scan" | "calibrating" | "ranked";

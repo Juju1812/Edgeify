@@ -197,6 +197,16 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Walkout audio */}
+      <Section title="Walkout audio">
+        <p className="text-xs leading-relaxed text-white/55">
+          Upload a short audio clip (≤ 1MB, ideally 3–5 seconds). It plays
+          locally for you when a match starts. We don&apos;t broadcast it
+          to your opponent, and it&apos;s saved on this device only.
+        </p>
+        <WalkoutPicker />
+      </Section>
+
       {/* Custom rank icon (Pro) */}
       <Section title="Custom rank icon">
         <p className="text-xs leading-relaxed text-white/55">
@@ -506,6 +516,89 @@ function Toggle({
         className="h-4 w-4 accent-mog-violet"
       />
     </label>
+  );
+}
+
+function WalkoutPicker() {
+  const { user, update } = useUser();
+  const { toast } = useToast();
+  const inputId = "walkout-upload-input";
+
+  function onFile(file: File) {
+    if (file.size > 1_000_000) {
+      toast("File too big. Max 1MB.", { kind: "error" });
+      return;
+    }
+    if (!file.type.startsWith("audio/")) {
+      toast("Pick an audio file (mp3, m4a, wav, ogg).", { kind: "error" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      update({ walkoutAudio: dataUrl });
+      toast("Walkout saved — plays locally on match start.", {
+        kind: "success"
+      });
+    };
+    reader.onerror = () => toast("Couldn't read the file.", { kind: "error" });
+    reader.readAsDataURL(file);
+  }
+
+  function preview() {
+    if (!user.walkoutAudio) return;
+    const a = new Audio(user.walkoutAudio);
+    a.volume = user.soundVolume;
+    a.play().catch(() => {});
+    window.setTimeout(() => a.pause(), 5000);
+  }
+
+  return (
+    <div className="space-y-3">
+      <input
+        id={inputId}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.currentTarget.value = "";
+        }}
+      />
+      <div className="flex flex-wrap gap-2">
+        <label
+          htmlFor={inputId}
+          className="cursor-pointer rounded-lg border border-edge-cyan/40 bg-edge-cyan/[0.08] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/70 hover:bg-edge-cyan/[0.16]"
+        >
+          {user.walkoutAudio ? "Replace clip" : "Upload clip"}
+        </label>
+        {user.walkoutAudio && (
+          <>
+            <button
+              onClick={preview}
+              className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/65 transition hover:border-white/20 hover:text-white"
+            >
+              Preview (5s)
+            </button>
+            <button
+              onClick={() => {
+                update({ walkoutAudio: null });
+                toast("Walkout removed.", { kind: "info" });
+              }}
+              className="rounded-lg border border-rose-500/30 bg-rose-500/[0.04] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-300 transition hover:border-rose-500/60 hover:bg-rose-500/[0.08]"
+            >
+              Remove
+            </button>
+          </>
+        )}
+      </div>
+      {user.walkoutAudio && (
+        <p className="text-[10px] uppercase tracking-[0.22em] text-emerald-300">
+          ✓ Clip armed
+        </p>
+      )}
+    </div>
   );
 }
 

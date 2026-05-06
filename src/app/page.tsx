@@ -99,6 +99,10 @@ const DailyPoll = dynamic(
   () => import("@/components/DailyPoll").then((m) => m.DailyPoll),
   { ssr: false, loading: () => <div className="glass h-24 animate-pulse rounded-2xl" /> }
 );
+const FriendActivity = dynamic(
+  () => import("@/components/FriendActivity").then((m) => m.FriendActivity),
+  { ssr: false }
+);
 
 export default function HomePage() {
   const { user, status, ready } = useUser();
@@ -159,6 +163,7 @@ export default function HomePage() {
       <section className="mx-auto mt-5 max-w-[1400px] space-y-3 px-6">
         <SeasonCountdown />
         <AnniversaryCard />
+        <FriendActivity />
         <OnboardingChecklist />
         <DailyLoginSpinner />
         <PromoSeriesWidget />
