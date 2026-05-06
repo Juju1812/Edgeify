@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0%" stop-color="#1a0f3d"/>
+      <stop offset="60%" stop-color="#0a0618"/>
+      <stop offset="100%" stop-color="#04060c"/>
+    </radialGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22e9ff"/>
+      <stop offset="50%" stop-color="#b9f8ff"/>
+      <stop offset="100%" stop-color="#ff5d8f"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22e9ff"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff7da3"/>
+      <stop offset="100%" stop-color="#ff5d8f"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Ambient cyan corner glow -->
+  <circle cx="120" cy="120" r="180" fill="#22e9ff" opacity="0.10"/>
+  <!-- Ambient coral corner glow -->
+  <circle cx="400" cy="400" r="180" fill="#ff5d8f" opacity="0.08"/>
+
+  <!-- Hex ring (the EdgeMark) -->
+  <g transform="translate(256 256)" filter="url(#glow)">
+    <path d="M0 -180 L156 -90 L156 90 L0 180 L-156 90 L-156 -90 Z"
+          fill="none"
+          stroke="url(#brand)"
+          stroke-width="14"
+          stroke-linejoin="round"/>
+  </g>
+
+  <!-- The E -->
+  <g transform="translate(256 256)" stroke-linecap="round">
+    <line x1="-72" y1="-78" x2="60" y2="-78" stroke="url(#cyan)" stroke-width="22"/>
+    <line x1="-72" y1="0"   x2="36" y2="0"   stroke="url(#brand)" stroke-width="22"/>
+    <line x1="-72" y1="78"  x2="60" y2="78"  stroke="url(#coral)" stroke-width="22"/>
+    <line x1="-72" y1="-90" x2="-72" y2="90" stroke="url(#brand)" stroke-width="22" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark below -->
+  <text x="256" y="448"
+        text-anchor="middle"
+        font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace"
+        font-size="34"
+        font-weight="800"
+        letter-spacing="9"
+        fill="white"
+        opacity="0.9">EDGIFY</text>
+</svg>
