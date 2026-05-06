@@ -36,6 +36,23 @@ export default function CareerPage() {
         </p>
       </div>
 
+      {lt.matchesPlayed === 0 && (
+        <div className="mt-6 rounded-2xl border border-edge-cyan/25 bg-edge-cyan/[0.04] p-5">
+          <p className="label-xs text-edge-cyan">First time here</p>
+          <p className="mt-2 text-sm text-white/75">
+            Play your first ranked match and this page fills out with
+            wins, losses, peak ELO, longest streak, and a season-by-
+            season timeline.
+          </p>
+          <Link
+            href="/arena"
+            className="mt-4 inline-block rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25"
+          >
+            Find a match →
+          </Link>
+        </div>
+      )}
+
       <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <BigStat label="Matches Played" value={lt.matchesPlayed} />
         <BigStat label="Total XP" value={lt.totalXp.toLocaleString()} />

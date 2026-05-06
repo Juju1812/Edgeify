@@ -22,6 +22,18 @@ export default function ProfilePage() {
   const [historyFilter, setHistoryFilter] = useState<"all" | "wins" | "losses">("all");
   const [editingTagline, setEditingTagline] = useState(false);
 
+  function togglePin(id: string) {
+    const cur = user.pinnedMatchIds || [];
+    if (cur.includes(id)) {
+      update({ pinnedMatchIds: cur.filter((p) => p !== id) });
+    } else if (cur.length >= 3) {
+      // Cap at 3 pins; replace oldest.
+      update({ pinnedMatchIds: [...cur.slice(1), id] });
+    } else {
+      update({ pinnedMatchIds: [...cur, id] });
+    }
+  }
+
   if (!ready)
     return (
       <main className="mx-auto min-h-screen max-w-4xl px-6 pt-10">
@@ -183,6 +195,52 @@ export default function ProfilePage() {
         </div>
       )}
 
+      {user.pinnedMatchIds.length > 0 && (
+        <div className="mt-10">
+          <div className="mb-3 flex items-baseline justify-between">
+            <p className="label-xs text-edge-coral">📌 Pinned highlights</p>
+            <p className="text-[10px] uppercase tracking-[0.32em] text-white/35">
+              {user.pinnedMatchIds.length} / 3
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {user.pinnedMatchIds
+              .map((id) => user.matchHistory.find((m) => m.id === id))
+              .filter((m): m is MatchRecord => !!m)
+              .map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setReplay(m)}
+                  disabled={!m.rounds || m.rounds.length === 0}
+                  className="glass-hover glass overflow-hidden rounded-xl p-3 text-left disabled:cursor-default"
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-[0.32em]"
+                      style={{ color: m.won ? "#34d399" : "#f43f5e" }}
+                    >
+                      {m.won ? "WIN" : "LOSS"}
+                    </span>
+                    <span
+                      className="stat-mono text-xs"
+                      style={{ color: m.eloDelta >= 0 ? "#22d3ee" : "#f43f5e" }}
+                    >
+                      {m.eloDelta >= 0 ? "+" : ""}
+                      {m.eloDelta}
+                    </span>
+                  </div>
+                  <p className="mt-2 truncate text-xs uppercase tracking-[0.18em] text-white/85">
+                    vs {m.opponentName}
+                  </p>
+                  <p className="stat-mono mt-1 text-sm text-white/65">
+                    {m.myScore}–{m.oppScore}
+                  </p>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-10">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="label-xs">Match History</h2>
@@ -222,19 +280,39 @@ export default function ProfilePage() {
                     : !m.won
               )
               .map((m) => (
-              <button
+              <div
                 key={m.id}
-                onClick={() => setReplay(m)}
-                disabled={!m.rounds || m.rounds.length === 0}
-                className="grid w-full grid-cols-[5rem_1fr_4rem_5rem] gap-3 border-b border-white/[0.02] px-5 py-3 text-left text-sm transition last:border-b-0 enabled:hover:bg-white/[0.02] disabled:cursor-default"
+                className="group grid w-full grid-cols-[2rem_5rem_1fr_4rem_5rem] items-center gap-3 border-b border-white/[0.02] px-5 py-3 text-left text-sm transition last:border-b-0 hover:bg-white/[0.02]"
               >
-                <span
-                  className="text-xs font-bold uppercase tracking-[0.22em]"
+                <button
+                  onClick={() => togglePin(m.id)}
+                  title={
+                    user.pinnedMatchIds.includes(m.id)
+                      ? "Unpin from highlights"
+                      : "Pin to highlights (max 3)"
+                  }
+                  className={
+                    "flex h-7 w-7 items-center justify-center rounded-md text-sm transition " +
+                    (user.pinnedMatchIds.includes(m.id)
+                      ? "bg-edge-coral/20 text-edge-coral"
+                      : "text-white/30 hover:bg-white/5 hover:text-edge-coral")
+                  }
+                >
+                  📌
+                </button>
+                <button
+                  onClick={() => setReplay(m)}
+                  disabled={!m.rounds || m.rounds.length === 0}
+                  className="text-left text-xs font-bold uppercase tracking-[0.22em] disabled:cursor-default"
                   style={{ color: m.won ? "#34d399" : "#f43f5e" }}
                 >
                   {m.won ? "WIN" : "LOSS"}
-                </span>
-                <span className="truncate uppercase tracking-[0.18em] text-white/80">
+                </button>
+                <button
+                  onClick={() => setReplay(m)}
+                  disabled={!m.rounds || m.rounds.length === 0}
+                  className="truncate text-left uppercase tracking-[0.18em] text-white/80 disabled:cursor-default"
+                >
                   vs {m.opponentName}
                   {m.practice && (
                     <span className="ml-2 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[8px] tracking-[0.22em] text-cyan-300">
@@ -246,7 +324,7 @@ export default function ProfilePage() {
                       {m.mode.toUpperCase()}
                     </span>
                   )}
-                </span>
+                </button>
                 <span className="text-right font-mono text-xs text-white/60">
                   {m.myScore}–{m.oppScore}
                 </span>
@@ -257,7 +335,7 @@ export default function ProfilePage() {
                   {m.eloDelta >= 0 ? "+" : ""}
                   {m.eloDelta}
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         )}

@@ -46,6 +46,16 @@ export default function AchievementsPage() {
         <p className="mt-2 text-xs text-white/40">{pct}% complete</p>
       </div>
 
+      {unlocked.length === 0 && (
+        <div className="mt-6 rounded-2xl border border-edge-cyan/20 bg-edge-cyan/[0.03] p-4">
+          <p className="text-xs text-white/65">
+            💡 Hover any locked card to see what unlocks it. Most early
+            achievements come from playing your first ranked match,
+            scanning your face, or hitting a 3-day streak.
+          </p>
+        </div>
+      )}
+
       {unlocked.length > 0 && (
         <>
           <h2 className="label-xs mt-10 mb-3 text-edge-cyan">Unlocked</h2>

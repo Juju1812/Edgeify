@@ -71,13 +71,16 @@ export async function renderHighlightClip(opts: HighlightOpts): Promise<Blob | n
     recorder.start();
     const startTs = performance.now();
 
+    // Cinematic timing: 9s instead of 6.5s. Each phase stretched
+    // proportionally so rounds linger and the verdict has weight.
+    const TOTAL_MS = 9000;
     const tick = () => {
       const t = performance.now() - startTs;
       drawFrame(ctx, t, opts, myImg, oppImg);
-      if (t < 6500) {
+      if (t < TOTAL_MS) {
         requestAnimationFrame(tick);
       } else {
-        // Stop after ~6.5s; a small grace before the recorder flushes.
+        // Stop with a small grace before the recorder flushes.
         setTimeout(() => recorder.stop(), 150);
       }
     };
@@ -188,15 +191,19 @@ function drawFrame(
   ctx.fillText("VS", 0, 4);
   ctx.restore();
 
-  // ─── Phase-driven content ──────────────────────────────────────
-  if (t < 1000) {
+  // ─── Phase-driven content (cinematic timing) ──────────────────
+  // 0-1.2s   intro
+  // 1.2-5.4s rounds (1.4s/round × 3)
+  // 5.4-7.5s verdict (2.1s — bigger linger)
+  // 7.5-9s   outro
+  if (t < 1200) {
     drawIntro(ctx, t);
-  } else if (t < 4000) {
-    drawRounds(ctx, t - 1000, opts.rounds);
-  } else if (t < 5500) {
-    drawVerdict(ctx, t - 4000, opts);
+  } else if (t < 5400) {
+    drawRounds(ctx, t - 1200, opts.rounds);
+  } else if (t < 7500) {
+    drawVerdict(ctx, t - 5400, opts);
   } else {
-    drawOutro(ctx, t - 5500);
+    drawOutro(ctx, t - 7500);
   }
 }
 
@@ -219,8 +226,9 @@ function drawRounds(
   t: number,
   rounds: HighlightOpts["rounds"]
 ) {
-  // Each round gets ~1s of the 3s window. Reveal the bar, hold, fade.
-  const slot = 1000;
+  // Cinematic: ~1.4s per round (was 1s). The decisive round (last
+  // one) gets an extra beat from the calling-site phase budget.
+  const slot = 1400;
   for (let i = 0; i < rounds.length; i++) {
     const startT = i * slot;
     if (t < startT) continue;
