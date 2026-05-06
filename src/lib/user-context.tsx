@@ -154,7 +154,34 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           if (res.ok) {
             const data = await res.json();
             if (data.profile) {
-              const merged = reconcileLifetime({ ...DEFAULT_USER, ...data.profile });
+              // Server profile is the source of truth for stats, but it
+              // can be missing face-data fields (KV trims them, older
+              // syncs didn't include them, etc.). Preserve whatever the
+              // local cache already has when the server doesn't supply
+              // a value — otherwise a routine login wipes the user's
+              // saved scan and forces a re-calibrate.
+              const localCache = loadFromStorage() || DEFAULT_USER;
+              const p = data.profile as Partial<UserState>;
+              const merged = reconcileLifetime({
+                ...DEFAULT_USER,
+                ...p,
+                hasScanned:
+                  typeof p.hasScanned === "boolean"
+                    ? p.hasScanned
+                    : localCache.hasScanned,
+                faceDataUrl:
+                  typeof p.faceDataUrl === "string"
+                    ? p.faceDataUrl
+                    : localCache.faceDataUrl,
+                edgeScore:
+                  p.edgeScore && typeof p.edgeScore === "object"
+                    ? p.edgeScore
+                    : localCache.edgeScore,
+                placementsLeft:
+                  typeof p.placementsLeft === "number"
+                    ? p.placementsLeft
+                    : localCache.placementsLeft
+              });
               const withRollover = { ...merged, ...checkSeasonRollover(merged) };
               const withStreak = { ...withRollover, ...tickDailyStreak(withRollover) };
               const withDecay = { ...withStreak, ...applyInactivityDecay(withStreak) };
@@ -394,9 +421,32 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       saveToken(token);
       tokenRef.current = token;
       setAuthedRemote(true);
-      // Hydrate from server profile if there is one.
+      // Hydrate from server profile if there is one. Preserve local
+      // face data when the server doesn't supply it (same rationale as
+      // the on-mount /api/auth/me path).
       if (data.profile) {
-        const merged = reconcileLifetime({ ...DEFAULT_USER, ...data.profile });
+        const localCache = loadFromStorage() || DEFAULT_USER;
+        const p = data.profile as Partial<UserState>;
+        const merged = reconcileLifetime({
+          ...DEFAULT_USER,
+          ...p,
+          hasScanned:
+            typeof p.hasScanned === "boolean"
+              ? p.hasScanned
+              : localCache.hasScanned,
+          faceDataUrl:
+            typeof p.faceDataUrl === "string"
+              ? p.faceDataUrl
+              : localCache.faceDataUrl,
+          edgeScore:
+            p.edgeScore && typeof p.edgeScore === "object"
+              ? p.edgeScore
+              : localCache.edgeScore,
+          placementsLeft:
+            typeof p.placementsLeft === "number"
+              ? p.placementsLeft
+              : localCache.placementsLeft
+        });
         setUser(merged);
       } else {
         setUser((prev) => ({

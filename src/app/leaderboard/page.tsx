@@ -68,7 +68,10 @@ export default function LeaderboardPage() {
       losses: user.losses,
       edgeScore: Math.round(user.edgeScore?.composite ?? 50),
       faceDataUrl: user.faceDataUrl,
-      countryCode: user.countryCode
+      countryCode: user.countryCode,
+      // Stamp the local row with "right now" so daily/weekly tabs
+      // include it.
+      updatedAt: Date.now()
     });
     return rest.sort((a, b) => b.elo - a.elo);
   }, [entries, user, status]);

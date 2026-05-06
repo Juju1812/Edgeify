@@ -22,19 +22,54 @@ export async function GET() {
   const keys = usernames.map((u) => lbSummaryKey(u));
   const summaries = await redis.mget<Array<string | object | null>>(...keys);
 
-  const entries = (summaries || []).map((raw, i) => {
-    if (!raw) return { username: usernames[i], elo: 0, wins: 0, losses: 0, edgeScore: 0, faceDataUrl: null };
-    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return {
-      username: obj.username || usernames[i],
-      elo: obj.elo || 0,
-      wins: obj.wins || 0,
-      losses: obj.losses || 0,
-      edgeScore: obj.edgeScore || 0,
-      faceDataUrl: obj.faceDataUrl || null,
-      countryCode: obj.countryCode || null
-    };
+  // Drop entries where the per-user summary is missing or has zero
+  // ELO — those are stale ZSET rows whose lb:summary was evicted, and
+  // showing them as 0/0/0/0 skeletons clutters the board. Also evict
+  // the dangling ZSET membership so future loads don't re-fetch them.
+  const entries: Array<{
+    username: string;
+    elo: number;
+    wins: number;
+    losses: number;
+    edgeScore: number;
+    faceDataUrl: string | null;
+    countryCode: string | null;
+    updatedAt: number;
+  }> = [];
+  const stale: string[] = [];
+  (summaries || []).forEach((raw, i) => {
+    if (!raw) {
+      stale.push(usernames[i]);
+      return;
+    }
+    const obj = (
+      typeof raw === "string" ? JSON.parse(raw) : raw
+    ) as Record<string, unknown>;
+    const elo = Number(obj.elo) || 0;
+    if (elo <= 0) {
+      stale.push(usernames[i]);
+      return;
+    }
+    entries.push({
+      username: String(obj.username || usernames[i]),
+      elo,
+      wins: Number(obj.wins) || 0,
+      losses: Number(obj.losses) || 0,
+      edgeScore: Number(obj.edgeScore) || 0,
+      faceDataUrl:
+        typeof obj.faceDataUrl === "string" ? (obj.faceDataUrl as string) : null,
+      countryCode:
+        typeof obj.countryCode === "string" ? (obj.countryCode as string) : null,
+      updatedAt: Number(obj.updatedAt) || 0
+    });
   });
+  // Best-effort cleanup of dangling ZSET members. Don't await — the
+  // response should ship now, the cleanup runs in the background.
+  if (stale.length > 0) {
+    Promise.resolve(redis.zrem(LEADERBOARD_KEY, ...stale)).catch(() => {
+      /* swallow */
+    });
+  }
 
   return NextResponse.json({ entries });
 }
