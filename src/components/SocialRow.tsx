@@ -20,7 +20,7 @@ type SocialItem = {
 
 const items: SocialItem[] = [
   {
-    href: "https://discord.gg/",
+    href: "https://discord.gg/qSH5aYuTFY",
     icon: <DiscordIcon className="h-5 w-5" />,
     label: "Discord",
     iconColor: "text-[#5865F2]"
