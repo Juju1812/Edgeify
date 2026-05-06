@@ -273,6 +273,16 @@ export function applyPromoSeriesRules(
   const prevTier = highestTierAtOrBelow(prev.elo);
   const wouldEnterTier = highestTierAtOrBelow(newElo);
 
+  // STALE PROMO RECOVERY: if a promo series is recorded but the user
+  // has since dropped well below the target tier (e.g. lost streak
+  // after entering the series, or data corruption), the series is
+  // dead — ELO would freeze at prev.elo for every future match
+  // because we'd keep entering the active-promo branch below. Clear
+  // the stale promo so ELO can move normally again.
+  if (prev.promo && prev.elo < prev.promo.toTier - 75) {
+    return { elo: newElo, promo: null };
+  }
+
   // No tier change and no active promo → just update ELO.
   if (!prev.promo && wouldEnterTier === prevTier) return { elo: newElo };
 

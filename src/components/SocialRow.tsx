@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import {
-  DiscordIcon,
-  InstagramIcon,
-  RedditIcon,
-  TikTokIcon,
-  XIcon,
-  YouTubeIcon
-} from "./icons";
+import { DiscordIcon } from "./icons";
 
 type SocialItem = {
   href: string;
@@ -18,42 +11,16 @@ type SocialItem = {
   iconColor?: string;
 };
 
+// Only Discord is set up so far. Other channels (TikTok, Insta, Reddit,
+// YouTube, X) will be added back here once the corresponding accounts
+// exist — listing dead links creates a worse first impression than
+// listing fewer real ones.
 const items: SocialItem[] = [
   {
     href: "https://discord.gg/qSH5aYuTFY",
     icon: <DiscordIcon className="h-5 w-5" />,
     label: "Discord",
     iconColor: "text-[#5865F2]"
-  },
-  {
-    href: "https://tiktok.com/",
-    icon: <TikTokIcon className="h-5 w-5" />,
-    label: "TikTok",
-    iconColor: "text-white"
-  },
-  {
-    href: "https://instagram.com/",
-    icon: <InstagramIcon className="h-5 w-5" />,
-    label: "Instagram",
-    iconColor: "text-pink-400"
-  },
-  {
-    href: "https://reddit.com/",
-    icon: <RedditIcon className="h-5 w-5" />,
-    label: "Reddit",
-    iconColor: "text-orange-500"
-  },
-  {
-    href: "https://youtube.com/",
-    icon: <YouTubeIcon className="h-5 w-5" />,
-    label: "YouTube",
-    iconColor: "text-red-500"
-  },
-  {
-    href: "https://x.com/",
-    icon: <XIcon className="h-4 w-4" />,
-    label: "X / Twitter",
-    iconColor: "text-white"
   }
 ];
 
@@ -65,7 +32,7 @@ const items: SocialItem[] = [
 export function SocialRow() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="label-xs">Follow Edgify</p>
+      <p className="label-xs">Join the community</p>
       <div className="flex flex-wrap items-center gap-2">
         {items.map((item) => (
           <Link

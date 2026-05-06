@@ -29,8 +29,31 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // If we're authed + ranked + scanned + visible, force a profile
+    // sync first. This re-adds the user to the leaderboard ZSET in
+    // case they fell off via the stale-row cleanup or anti-cheat
+    // soft-reject. Then refetch the board.
     (async () => {
       try {
+        if (
+          status === "ranked" &&
+          user.username &&
+          user.hasScanned &&
+          !user.hideFromBoard &&
+          typeof window !== "undefined"
+        ) {
+          const token = window.localStorage.getItem("edgify:auth:token:v1");
+          if (token) {
+            await fetch("/api/profile/sync", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify(user)
+            }).catch(() => {});
+          }
+        }
         const res = await fetch("/api/leaderboard");
         if (!res.ok) throw new Error();
         const data = await res.json();
@@ -44,6 +67,7 @@ export default function LeaderboardPage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // If our local profile is fresher than what the server has, our entry

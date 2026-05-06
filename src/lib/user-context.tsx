@@ -77,8 +77,16 @@ function loadFromStorage(): UserState {
 function reconcileLifetime(u: UserState): UserState {
   const wl = (u.wins || 0) + (u.losses || 0);
   const lt = u.lifetime || DEFAULT_USER.lifetime;
+  // Auto-heal stale promo: a promo series whose target tier is way
+  // above the user's current ELO is dead and was freezing every
+  // future match's ELO update at prev.elo. Clear it on hydrate so the
+  // user's ELO can move again. The 75-point margin matches the live
+  // rule in applyPromoSeriesRules.
+  const healedPromo =
+    u.promo && u.elo < u.promo.toTier - 75 ? null : u.promo;
   return {
     ...u,
+    promo: healedPromo,
     lifetime: {
       ...lt,
       matchesPlayed: Math.max(lt.matchesPlayed || 0, wl),

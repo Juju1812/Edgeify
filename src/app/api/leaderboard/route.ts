@@ -39,6 +39,7 @@ export async function GET() {
   const stale: string[] = [];
   (summaries || []).forEach((raw, i) => {
     if (!raw) {
+      // No summary at all → genuinely orphaned ZSET membership.
       stale.push(usernames[i]);
       return;
     }
@@ -46,10 +47,6 @@ export async function GET() {
       typeof raw === "string" ? JSON.parse(raw) : raw
     ) as Record<string, unknown>;
     const elo = Number(obj.elo) || 0;
-    if (elo <= 0) {
-      stale.push(usernames[i]);
-      return;
-    }
     entries.push({
       username: String(obj.username || usernames[i]),
       elo,
