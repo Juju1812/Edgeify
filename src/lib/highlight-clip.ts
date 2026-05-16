@@ -208,16 +208,31 @@ function drawFrame(
 }
 
 function drawIntro(ctx: CanvasRenderingContext2D, t: number) {
-  const a = Math.min(1, t / 400);
+  // TikTok-native hook: front-load a question + tag to lock the
+  // viewer past the 0.5s skip window. The big bold "WHO WINS??" is
+  // the actual scroll-stopper; everything else is decoration.
+  const a = Math.min(1, t / 200);
   ctx.save();
   ctx.globalAlpha = a;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  ctx.font = "800 88px Inter, ui-sans-serif, system-ui, sans-serif";
+
+  // Bouncy scale on the headline for the first 600ms — micro-motion
+  // signals "this is going to pay off in a second."
+  const bounce =
+    t < 600 ? 1 + Math.sin((t / 600) * Math.PI) * 0.05 : 1;
+  ctx.translate(W / 2, 1080);
+  ctx.scale(bounce, bounce);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "900 132px Inter, ui-sans-serif, system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("FACE-OFF", W / 2, 1100);
-  ctx.fillStyle = "rgba(34, 233, 255, 0.85)";
-  ctx.font = "600 32px ui-monospace, monospace";
-  ctx.fillText("BEST OF 3", W / 2, 1170);
+  ctx.textBaseline = "middle";
+  ctx.fillText("WHO WINS??", 0, 0);
+
+  // Subhead under the hook
+  ctx.scale(1 / bounce, 1 / bounce);
+  ctx.fillStyle = "rgba(255, 93, 143, 0.9)";
+  ctx.font = "800 38px ui-monospace, monospace";
+  ctx.fillText("⚡ EDGIFY 1V1 · AI-SCORED", 0, 110);
   ctx.restore();
 }
 
@@ -311,29 +326,52 @@ function drawVerdict(
   t: number,
   opts: HighlightOpts
 ) {
-  const a = Math.min(1, t / 300);
-  // Big banner across mid-screen
+  // Punch-in scale: verdict drops on screen at 130% then settles to
+  // 100% over 250ms. Locks attention on the payoff.
+  const a = Math.min(1, t / 200);
+  const scale =
+    t < 250 ? 1.3 - 0.3 * (t / 250) : 1;
   ctx.save();
   ctx.globalAlpha = a;
   ctx.fillStyle = opts.won ? "#34d399" : "#f43f5e";
-  ctx.font = "900 120px Inter, ui-sans-serif, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  const word = opts.won ? "MOGGED" : "MOGGED ON";
-  ctx.fillText(word, W / 2, 1180);
 
-  // ELO delta
+  // Big banner across mid-screen
+  ctx.save();
+  ctx.translate(W / 2, 1180);
+  ctx.scale(scale, scale);
+  ctx.font = "900 156px Inter, ui-sans-serif, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const word = opts.won ? "MOGGED" : "MOGGED ON";
+  ctx.fillText(word, 0, 0);
+  ctx.restore();
+
+  // ELO delta — animated count-up from 0 to delta over 700ms.
+  const progress = Math.min(1, Math.max(0, (t - 250) / 700));
+  const displayDelta = Math.round(opts.eloDelta * progress);
   ctx.fillStyle = opts.eloDelta >= 0 ? "#22e9ff" : "#ff5d8f";
-  ctx.font = "800 72px ui-monospace, monospace";
+  ctx.font = "900 108px ui-monospace, monospace";
+  ctx.textAlign = "center";
   ctx.fillText(
-    `${opts.eloDelta >= 0 ? "+" : ""}${opts.eloDelta} ELO`,
+    `${displayDelta >= 0 ? "+" : ""}${displayDelta} ELO`,
     W / 2,
-    1280
+    1330
   );
 
   // Rank
   ctx.fillStyle = opts.rankColor;
-  ctx.font = "600 36px ui-monospace, monospace";
-  ctx.fillText(`${opts.rankEmoji} ${opts.rankLabel}`, W / 2, 1340);
+  ctx.font = "700 48px ui-monospace, monospace";
+  ctx.fillText(`${opts.rankEmoji} ${opts.rankLabel}`, W / 2, 1410);
+
+  // "Can you beat them?" CTA — only fades in after the count-up settles.
+  if (t > 1000) {
+    const ctaA = Math.min(1, (t - 1000) / 400);
+    ctx.globalAlpha = a * ctaA;
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
+    ctx.font = "700 38px Inter, ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText("CAN YOU BEAT THEM?", W / 2, 1500);
+  }
+
   ctx.restore();
 }
 

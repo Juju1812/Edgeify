@@ -19,13 +19,51 @@ type Summary = {
   updatedAt: number;
 };
 
+type MogReplay = {
+  id: string;
+  myName: string;
+  oppName: string;
+  myScore: number;
+  oppScore: number;
+  won: boolean;
+  eloDelta: number;
+  playedAt: number;
+};
+
+function utcDateKey(ts: number = Date.now()): string {
+  const d = new Date(ts);
+  return `moments:v1:${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+async function getTodaysBiggestMog(
+  redis: Redis
+): Promise<MogReplay | null> {
+  try {
+    const today = utcDateKey();
+    let ids = (await redis.zrange<string[]>(today, 0, 0, { rev: true })) || [];
+    // Fall back to yesterday for the first few hours after UTC midnight
+    // when today's index is still cold.
+    if (ids.length === 0) {
+      const yesterday = utcDateKey(Date.now() - 24 * 60 * 60 * 1000);
+      ids = (await redis.zrange<string[]>(yesterday, 0, 0, { rev: true })) || [];
+    }
+    if (ids.length === 0) return null;
+    const raw = await redis.get<string | object>(`replay:v1:${ids[0]}`);
+    if (!raw) return null;
+    return typeof raw === "string" ? JSON.parse(raw) : (raw as MogReplay);
+  } catch {
+    return null;
+  }
+}
+
 async function getTopAndRecent(): Promise<{
   top: Summary[];
   recent: Summary[];
   count: number;
+  biggestMog: MogReplay | null;
 }> {
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-    return { top: [], recent: [], count: 0 };
+    return { top: [], recent: [], count: 0, biggestMog: null };
   }
   const redis = Redis.fromEnv();
   const usernames = ((await redis.zrange(LEADERBOARD_KEY, 0, 99, {
@@ -59,11 +97,12 @@ async function getTopAndRecent(): Promise<{
     .filter((s) => s.updatedAt && now - s.updatedAt < dayMs)
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 8);
-  return { top, recent, count: all.length };
+  const biggestMog = await getTodaysBiggestMog(redis);
+  return { top, recent, count: all.length, biggestMog };
 }
 
 export default async function TodayPage() {
-  const { top, recent, count } = await getTopAndRecent();
+  const { top, recent, count, biggestMog } = await getTopAndRecent();
   const dateLabel = new Date().toUTCString().slice(0, 16);
   const headline =
     top.length > 0
@@ -120,6 +159,42 @@ export default async function TodayPage() {
           </p>
         )}
       </section>
+
+      {/* Biggest mog of the day */}
+      {biggestMog && (
+        <section className="mt-6 border-b border-white/10 pb-6">
+          <h3 className="border-b border-white/10 pb-2 text-[11px] font-bold uppercase tracking-[0.32em] text-edge-coral">
+            ⚔️ Biggest mog · last 24h
+          </h3>
+          <div className="mt-3">
+            <p className="heading-display text-2xl uppercase leading-tight sm:text-3xl">
+              {biggestMog.eloDelta > 0
+                ? biggestMog.myName
+                : biggestMog.oppName}{" "}
+              ABSOLUTELY MOGGED{" "}
+              {biggestMog.eloDelta > 0
+                ? biggestMog.oppName
+                : biggestMog.myName}
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-white/65">
+              A {Math.abs(biggestMog.eloDelta)} ELO swing in a{" "}
+              <span className="stat-mono text-white">
+                {biggestMog.myScore}–{biggestMog.oppScore}
+              </span>{" "}
+              face-off. Replay is live on the site —
+              {biggestMog.eloDelta > 0 ? " challenger" : " defender"}{" "}
+              walked away{" "}
+              {Math.abs(biggestMog.eloDelta) >= 30 ? "stunned" : "scarred"}.
+            </p>
+            <Link
+              href={`/replay/${encodeURIComponent(biggestMog.id)}`}
+              className="mt-4 inline-block rounded-lg border border-edge-coral/50 bg-edge-coral/15 px-5 py-2.5 text-xs font-bold uppercase tracking-[0.22em] text-white transition hover:border-edge-coral hover:bg-edge-coral/25"
+            >
+              Watch the replay →
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* Two-column body */}
       <div className="mt-6 grid gap-6 sm:grid-cols-2">

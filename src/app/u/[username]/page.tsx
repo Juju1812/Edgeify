@@ -39,19 +39,27 @@ export async function generateMetadata({
   params: { username: string };
 }): Promise<Metadata> {
   const profile = await getProfile(params.username);
-  const title = profile
-    ? `${profile.username} · Edgify`
+  // Tier surfaces in the title so the page reads like an actual
+  // ranking entry in search results — "JRUBSKI · MTN · 1025 ELO" is
+  // far more click-worthy than "JRUBSKI · Edgify".
+  const rank = profile ? rankFromElo(profile.elo) : null;
+  const title = profile && rank
+    ? `${profile.username} · ${rank.label} · ${profile.elo} ELO · Edgify`
     : `${params.username} · Edgify`;
   const description = profile
-    ? `${profile.username} on Edgify. ${profile.elo} ELO · ${profile.wins}W ${profile.losses}L · EdgeScore ${profile.edgeScore}.`
-    : `${params.username}'s profile on Edgify.`;
+    ? `${profile.username} on Edgify — ${rank?.label} tier, ${profile.elo} ELO. ${profile.wins} wins, ${profile.losses} losses. EdgeScore ${profile.edgeScore}.`
+    : `${params.username}'s profile on Edgify, the AI-scored 1v1 face-off platform.`;
   const ogUrl = `/api/og/${encodeURIComponent(params.username)}`;
+  const canonical = `/u/${encodeURIComponent(params.username)}`;
   return {
     title,
     description,
+    alternates: { canonical },
     openGraph: {
       title,
       description,
+      url: canonical,
+      type: "profile",
       images: [{ url: ogUrl, width: 1200, height: 630 }]
     },
     twitter: {
@@ -59,7 +67,8 @@ export async function generateMetadata({
       title,
       description,
       images: [ogUrl]
-    }
+    },
+    robots: { index: true, follow: true }
   };
 }
 
@@ -74,8 +83,33 @@ export default async function PublicProfilePage({
   const total = profile.wins + profile.losses;
   const winRate = total > 0 ? Math.round((profile.wins / total) * 100) : 0;
 
+  // Schema.org structured data — search engines pick this up and use
+  // it to render rich snippets (rank, stats) directly in results.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    mainEntity: {
+      "@type": "Person",
+      name: profile.username,
+      url: `https://edgify.cc/u/${encodeURIComponent(profile.username)}`,
+      description: `${rank.label} tier · ${profile.elo} ELO · ${profile.wins}W ${profile.losses}L on Edgify`,
+      ...(profile.faceDataUrl ? { image: profile.faceDataUrl } : {})
+    },
+    about: {
+      "@type": "Thing",
+      name: "Edgify EdgeScore",
+      description:
+        "AI-scored 1v1 face-off platform — geometric facial measurements, not an objective beauty judgment."
+    }
+  };
+
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 pt-10 pb-16">
+      {/* eslint-disable-next-line @next/next/no-head-element */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link
         href="/"
         className="label-xs inline-flex items-center gap-2 text-white/40 transition hover:text-white"

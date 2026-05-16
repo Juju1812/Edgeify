@@ -40,6 +40,7 @@ export function DeepAnalysis({
     | { kind: "idle" }
     | { kind: "loading" }
     | { kind: "ready"; text: string }
+    | { kind: "paywall"; teaser: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [open, setOpen] = useState(false);
@@ -80,6 +81,12 @@ export function DeepAnalysis({
       });
       const data = await res.json();
       if (!res.ok) {
+        // 402 quota_exceeded ships a deterministic teaser — render it
+        // as the conversion moment rather than a blunt refusal.
+        if (res.status === 402 && data.teaser) {
+          setState({ kind: "paywall", teaser: data.teaser });
+          return;
+        }
         setState({
           kind: "error",
           message: data.message || data.error || "Analysis failed."
@@ -139,6 +146,11 @@ export function DeepAnalysis({
               {open ? "Collapse" : "Expand"}
             </button>
           )}
+          {state.kind === "paywall" && (
+            <span className="rounded-lg border border-edge-coral/40 bg-edge-coral/[0.06] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-edge-coral">
+              ★ Quota hit · preview
+            </span>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -183,6 +195,10 @@ export function DeepAnalysis({
 
                 {state.kind === "ready" && (
                   <AnalysisRender text={state.text} />
+                )}
+
+                {state.kind === "paywall" && (
+                  <PaywallTeaser teaser={state.teaser} />
                 )}
               </div>
             </motion.div>
@@ -335,4 +351,46 @@ function renderInline(text: string): React.ReactNode {
   }
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts;
+}
+
+/**
+ * 402 quota-exceeded "preview" surface. Renders the deterministic
+ * teaser the server built from the match scores, then a gradient
+ * "blurred" continuation block, then the Pro CTA. The point is to
+ * give the user a sense of what they're missing rather than blunt-
+ * refuse and lose them.
+ */
+function PaywallTeaser({ teaser }: { teaser: string }) {
+  return (
+    <div className="relative">
+      <AnalysisRender text={teaser} />
+      {/* Soft fade-out at the bottom of the teaser so it visually
+          dissolves into the upgrade CTA. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(7,5,18,0) 0%, rgba(7,5,18,0.85) 75%, rgba(7,5,18,1) 100%)"
+        }}
+      />
+      <div className="mt-6 rounded-2xl border border-edge-coral/30 bg-gradient-to-br from-edge-coral/[0.08] to-edge-cyan/[0.05] p-5 text-center">
+        <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-edge-coral">
+          ★ Edgify Pro
+        </p>
+        <p className="mt-2 text-base font-semibold text-white">
+          See the full Claude breakdown
+        </p>
+        <p className="mx-auto mt-1 max-w-sm text-xs text-white/55">
+          Symmetry, bone structure, eye area, skin, lips, nose, hair,
+          grooming · strengths · improvement tips · final verdict. $4.99/mo.
+        </p>
+        <a
+          href="/pricing"
+          className="mt-4 inline-block rounded-lg border border-edge-coral/60 bg-edge-coral/15 px-6 py-3 text-xs font-bold uppercase tracking-[0.22em] text-white transition hover:border-edge-coral hover:bg-edge-coral/25"
+        >
+          Unlock Pro →
+        </a>
+      </div>
+    </div>
+  );
 }

@@ -160,10 +160,38 @@ export async function POST(req: Request) {
       const usedRaw = await redis.get<number | string>(usageKey(username, month));
       const used = Number(usedRaw) || 0;
       if (used >= FREE_DEEP_ANALYSES_PER_MONTH) {
+        // Parse the body now so we can build a real teaser from the
+        // scores instead of returning a flat refusal. Zero Claude cost
+        // — the teaser is deterministically generated and reads like
+        // the opening of a real analysis. This is the highest-leverage
+        // Pro conversion moment we have.
+        let teaserBody: Body = {};
+        try {
+          teaserBody = await req.json();
+        } catch {
+          /* fall through with empty teaserBody */
+        }
+        const my = teaserBody.myName || "Player A";
+        const opp = teaserBody.oppName || "Player B";
+        const mw = Number(teaserBody.myScore) || 0;
+        const ow = Number(teaserBody.oppScore) || 0;
+        const closer = mw === ow ? "razor close" : Math.abs(mw - ow) === 1 ? "tight" : "decisive";
+        const winner = mw > ow ? my : ow > mw ? opp : null;
+        const teaser =
+          `1. OVERALL SUMMARY\n` +
+          `A ${closer} face-off: ${my} ${mw} – ${opp} ${ow}` +
+          (winner ? `, with ${winner} taking the edge.` : `, ending level.`) +
+          ` Both players showed dimension-specific advantages — the deciding margin came down to a single category.\n\n` +
+          `2. FEATURE-BY-FEATURE ANALYSIS\n\n` +
+          `**Facial symmetry** — ${winner ? `${winner}'s mid-line alignment held cleaner through the scan window.` : `Both players read symmetric within tolerance.`}\n\n` +
+          `**Bone structure** — *Pro subscribers see the full per-category breakdown for jawline, cheekbones, and chin definition…*\n\n` +
+          `[Skin quality, eye area, nose proportions, lips, hair, grooming · 5 more sections]\n\n` +
+          `3. STRENGTHS · 4. IMPROVEMENT OPPORTUNITIES · 5. FINAL VERDICT — *Pro only*`;
         return NextResponse.json(
           {
             error: "quota_exceeded",
             message: `Free tier is ${FREE_DEEP_ANALYSES_PER_MONTH} deep analyses per month. Upgrade to Edgify Pro for unlimited.`,
+            teaser,
             upgradeUrl: "/pricing"
           },
           { status: 402 }

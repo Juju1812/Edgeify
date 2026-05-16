@@ -156,6 +156,7 @@ export default function ProfilePage() {
           <div className="pt-2">
             <ShareScoreCardButton />
           </div>
+          {user.username && <ChallengeLinkRow username={user.username} />}
         </div>
       </div>
 
@@ -560,39 +561,66 @@ function EloChart({
 function RivalsCard({ history }: { history: MatchRecord[] }) {
   const tally = new Map<
     string,
-    { name: string; wins: number; losses: number; lastPlayed: number }
+    {
+      name: string;
+      wins: number;
+      losses: number;
+      lastPlayed: number;
+      eloSwing: number; // cumulative ELO delta across the rivalry
+    }
   >();
   for (const m of history) {
+    if (m.practice) continue; // rivalries only count ranked matches
     const t = tally.get(m.opponentName) || {
       name: m.opponentName,
       wins: 0,
       losses: 0,
-      lastPlayed: 0
+      lastPlayed: 0,
+      eloSwing: 0
     };
     if (m.won) t.wins += 1;
     else t.losses += 1;
     t.lastPlayed = Math.max(t.lastPlayed, m.playedAt);
+    t.eloSwing += m.eloDelta || 0;
     tally.set(m.opponentName, t);
   }
+  // True rivals: faced 3+ times. Sort by recency-weighted match count
+  // so an active opponent outranks a stale 5-match history from months
+  // ago.
+  const now = Date.now();
   const ranked = [...tally.values()]
-    .sort((a, b) => b.wins + b.losses - (a.wins + a.losses))
+    .filter((r) => r.wins + r.losses >= 3)
+    .sort((a, b) => {
+      const aw = a.wins + a.losses + (now - a.lastPlayed < 7 * 86400000 ? 2 : 0);
+      const bw = b.wins + b.losses + (now - b.lastPlayed < 7 * 86400000 ? 2 : 0);
+      return bw - aw;
+    })
     .slice(0, 3);
   if (ranked.length === 0) return null;
 
   return (
     <div className="mt-10">
-      <h2 className="label-xs mb-3">Top Rivals</h2>
+      <h2 className="label-xs mb-3 text-edge-coral">⚔️ Active rivals</h2>
+      <p className="mb-3 text-[10px] uppercase tracking-[0.22em] text-white/35">
+        Players you&apos;ve faced 3+ times · tap to challenge again
+      </p>
       <div className="grid gap-3 sm:grid-cols-3">
         {ranked.map((r) => {
           const total = r.wins + r.losses;
           const wr = total > 0 ? Math.round((r.wins / total) * 100) : 0;
+          const daysAgo = Math.floor((now - r.lastPlayed) / 86400000);
+          const lead = r.wins > r.losses ? "ahead" : r.wins < r.losses ? "behind" : "tied";
           return (
-            <div key={r.name} className="glass rounded-2xl p-5">
+            <Link
+              key={r.name}
+              href={`/play/${encodeURIComponent(r.name)}`}
+              className="glass glass-hover rounded-2xl p-5"
+            >
               <p className="truncate text-sm font-semibold uppercase tracking-[0.18em] text-white">
                 {r.name}
               </p>
               <p className="mt-1 text-[10px] uppercase tracking-[0.32em] text-white/40">
-                {total} match{total === 1 ? "" : "es"}
+                {total} match{total === 1 ? "" : "es"} · {daysAgo === 0 ? "today" : `${daysAgo}d ago`}
               </p>
               <div className="mt-3 flex items-baseline gap-3">
                 <span className="stat-mono text-2xl text-emerald-300">
@@ -609,10 +637,32 @@ function RivalsCard({ history }: { history: MatchRecord[] }) {
                   style={{ width: `${wr}%` }}
                 />
               </div>
-              <p className="mt-2 text-[10px] uppercase tracking-[0.22em] text-white/40">
-                {wr}% W
+              <div className="mt-2 flex items-baseline justify-between text-[10px] uppercase tracking-[0.22em]">
+                <span
+                  className={
+                    lead === "ahead"
+                      ? "text-emerald-300"
+                      : lead === "behind"
+                        ? "text-rose-300"
+                        : "text-white/55"
+                  }
+                >
+                  {lead} · {wr}% W
+                </span>
+                <span
+                  className="stat-mono"
+                  style={{
+                    color: r.eloSwing >= 0 ? "#22d3ee" : "#f43f5e"
+                  }}
+                >
+                  {r.eloSwing >= 0 ? "+" : ""}
+                  {r.eloSwing} ELO
+                </span>
+              </div>
+              <p className="mt-3 text-[10px] uppercase tracking-[0.32em] text-edge-coral group-hover:text-white">
+                Challenge →
               </p>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -721,5 +771,37 @@ function ReplayModal({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function ChallengeLinkRow({ username }: { username: string }) {
+  const [copied, setCopied] = useState(false);
+  const url =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/challenge/${encodeURIComponent(username)}`
+      : `https://edgify.cc/challenge/${encodeURIComponent(username)}`;
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+  return (
+    <div className="mt-3 rounded-lg border border-edge-coral/25 bg-edge-coral/[0.04] p-3">
+      <p className="label-xs text-edge-coral">⚔️ Challenge link</p>
+      <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-white/45">
+        Text this URL to anyone — they tap it, accept, and drop straight
+        into a private 1v1 against you. No code to share.
+      </p>
+      <button
+        onClick={copy}
+        className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-left font-mono text-[11px] text-white/85 transition hover:border-edge-coral/50"
+      >
+        {copied ? "Copied ✓" : url}
+      </button>
+    </div>
   );
 }
