@@ -623,26 +623,38 @@ export function LiveMatch({
         }
 
         const faceapi = (await import("face-api.js")) as FaceApiNS;
+        // Wait ONLY on the small models (tiny detector + 68-pt landmark).
+        // These together are ~1MB — usually under a second on broadband
+        // and never more than ~3s on a slow phone. Once both are in,
+        // face-api is functional with the Tiny detector and we can start
+        // scoring rounds immediately.
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
         ]);
         if (cancelled) return;
-        // Try to upgrade to SSD-Mobilenet for more accurate landmark
-        // localization. Time-boxed so a slow connection doesn't stall the
-        // whole match — if SSD doesn't arrive in 8s we proceed with Tiny.
-        try {
-          const ssdLoad = faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-          await Promise.race([
-            ssdLoad,
-            new Promise((_r, rej) => setTimeout(() => rej(new Error("ssd-timeout")), 8000))
-          ]);
-          if (!cancelled) detectorRef.current = "ssd";
-        } catch {
-          /* SSD failed or timed out — Tiny is fine. */
-        }
-        if (cancelled) return;
+
+        // Publish face-api right now so the scan loop can detect on
+        // round 0. Previously we waited for the 10MB SSD model
+        // (up to 8 seconds) before setting this — which meant the
+        // first round (and sometimes the second) had no detector at
+        // all, accumulated zero landmarks, and silently fell back to
+        // the default 50 final score.
         faceApiRef.current = faceapi;
+        detectorRef.current = "tiny";
+
+        // SSD upgrade runs in the BACKGROUND — when it finishes we
+        // flip the detector for sharper landmark localization. If
+        // it never finishes or fails, no harm done; Tiny is what we
+        // would've fallen back to anyway.
+        faceapi.nets.ssdMobilenetv1
+          .loadFromUri(MODEL_URL)
+          .then(() => {
+            if (!cancelled) detectorRef.current = "ssd";
+          })
+          .catch(() => {
+            /* SSD unreachable — stick with Tiny */
+          });
 
         const stream = await getCameraStream();
         if (cancelled) {
