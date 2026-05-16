@@ -29,14 +29,15 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // If we're authed + ranked + scanned + visible, force a profile
-    // sync first. This re-adds the user to the leaderboard ZSET in
-    // case they fell off via the stale-row cleanup or anti-cheat
-    // soft-reject. Then refetch the board.
+    // Force a profile sync first so the server's leaderboard ZSET
+    // catches up to whatever local state has — this re-adds the user
+    // if they fell off via the stale-row cleanup or anti-cheat repair.
+    // Gate is now intentionally permissive: only require an auth token,
+    // a username, and a face scan. The server's own gate decides
+    // whether to actually add the user to the leaderboard ZSET.
     (async () => {
       try {
         if (
-          status === "ranked" &&
           user.username &&
           user.hasScanned &&
           !user.hideFromBoard &&
@@ -70,12 +71,16 @@ export default function LeaderboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If our local profile is fresher than what the server has, our entry
-  // might be slightly stale. Patch the local entry in-memory so the
-  // user always sees their own latest stats at the right rank.
+  // Always patch the user's local row into the board when they have a
+  // scan + username — even if status hasn't fully ticked over to
+  // "ranked" yet. Previously the merge required status === "ranked"
+  // which excluded users whose local state was briefly out of sync
+  // (e.g. stale placementsLeft after a cache wipe), so they'd be
+  // invisible on their own leaderboard. The server still controls
+  // whether their row exists in `entries` — this just ensures the
+  // active user's freshest stats are reflected when they ARE present.
   const all = useMemo<Entry[]>(() => {
     if (
-      status !== "ranked" ||
       !user.username ||
       user.hideFromBoard ||
       !user.hasScanned

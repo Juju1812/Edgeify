@@ -84,9 +84,18 @@ function reconcileLifetime(u: UserState): UserState {
   // rule in applyPromoSeriesRules.
   const healedPromo =
     u.promo && u.elo < u.promo.toTier - 75 ? null : u.promo;
+  // Auto-heal placementsLeft: anyone who's played 5+ matches has
+  // completed placements, period. The earlier login-overwrite bug left
+  // some users stuck with placementsLeft = 5 even though they had 30+
+  // matches behind them, which then blocked the leaderboard merge and
+  // the force-sync. If they're still mid-placements (wl < 5), leave
+  // it alone — the per-match decrement in applyMatchResult handles
+  // those correctly.
+  const healedPlacementsLeft = wl >= 5 ? 0 : u.placementsLeft;
   return {
     ...u,
     promo: healedPromo,
+    placementsLeft: healedPlacementsLeft,
     lifetime: {
       ...lt,
       matchesPlayed: Math.max(lt.matchesPlayed || 0, wl),
