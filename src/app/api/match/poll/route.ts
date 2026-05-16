@@ -72,12 +72,18 @@ export async function POST(req: Request) {
   const candidates = (await redis.zrange<string[]>(QUEUE_KEY, 0, 15)) || [];
   for (const oppId of candidates) {
     if (oppId === peerId) continue;
+    // Probe peerKey FIRST — if it expired, the ZSET row is a phantom
+    // and a claim would just create a dead-pair. zrem the phantom and
+    // skip without claiming.
+    const probe =
+      (await redis.hgetall<Record<string, string>>(peerKey(oppId))) || {};
+    if (Object.keys(probe).length === 0) {
+      await redis.zrem(QUEUE_KEY, oppId);
+      continue;
+    }
     const removed = await redis.zrem(QUEUE_KEY, oppId);
     if (removed > 0) {
-      // Read their info BEFORE we delete the peer hash.
-      const oppData =
-        (await redis.hgetall<Record<string, string>>(peerKey(oppId))) || {};
-      const oppElo = parseInt(oppData.elo || "1000", 10) || 1000;
+      const oppElo = parseInt(probe.elo || "1000", 10) || 1000;
       await redis.del(peerKey(oppId));
 
       // Tell the claimed peer who claimed them.

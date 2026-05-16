@@ -66,6 +66,16 @@ export async function POST(req: Request) {
 
     const oppData =
       (await redis.hgetall<Record<string, string>>(peerKey(oppId))) || {};
+    // Stale ZSET membership: peerKey has expired (60s TTL) but the
+    // ZSET entry never got cleaned up because the peer closed their
+    // tab without calling /cancel. Treat the row as dead — zrem it
+    // and continue scanning. Otherwise we'd "match" the new user to
+    // a peerId nobody is listening on, the PeerJS dial would silently
+    // fail, and matchmaking would look broken.
+    if (Object.keys(oppData).length === 0) {
+      await redis.zrem(QUEUE_KEY, oppId);
+      continue;
+    }
     const oppElo = parseInt(oppData.elo || "1000", 10) || 1000;
     const oppPlacements = parseInt(oppData.placementsLeft || "0", 10) || 0;
     const oppUsername = (oppData.username || "").toLowerCase();

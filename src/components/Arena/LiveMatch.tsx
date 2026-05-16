@@ -1129,6 +1129,30 @@ export function LiveMatch({
     onClose();
   }
 
+  // Best-effort queue cleanup on tab close. Without this, every closed
+  // tab leaves a phantom row in the matchmaking ZSET that subsequent
+  // joiners would "match" against — silently breaking pairing.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onUnload = () => {
+      const myId = matchmakingPeerIdRef.current;
+      if (!myId) return;
+      try {
+        const body = JSON.stringify({ peerId: myId });
+        const blob = new Blob([body], { type: "application/json" });
+        navigator.sendBeacon?.("/api/match/cancel", blob);
+      } catch {
+        /* sendBeacon unavailable — best-effort */
+      }
+    };
+    window.addEventListener("pagehide", onUnload);
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      window.removeEventListener("pagehide", onUnload);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+  }, []);
+
   // ─── Joining ──────────────────────────────────────────────────────
   async function startJoining(joinCode: string) {
     try {

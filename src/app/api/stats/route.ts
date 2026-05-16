@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRedis, QUEUE_KEY } from "@/lib/matchmaking-server";
+import { getRedis, peerKey, QUEUE_KEY } from "@/lib/matchmaking-server";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -31,9 +31,18 @@ export async function GET() {
     safety -= 1;
   } while (cursor !== "0" && safety > 0);
 
+  // Raw ZSET membership over-counts because closed tabs leave phantom
+  // entries whose peerKey hash has already expired. Take the top 30
+  // queue IDs and only count those whose peerKey still exists.
   let inQueueCount = 0;
   try {
-    inQueueCount = (await redis.zcard(QUEUE_KEY)) || 0;
+    const ids = (await redis.zrange<string[]>(QUEUE_KEY, 0, 29)) || [];
+    if (ids.length > 0) {
+      const probes = await Promise.all(
+        ids.map((id) => redis.exists(peerKey(id)))
+      );
+      inQueueCount = probes.filter((p) => p === 1).length;
+    }
   } catch {
     /* */
   }
