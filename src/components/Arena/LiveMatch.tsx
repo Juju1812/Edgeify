@@ -713,6 +713,23 @@ export function LiveMatch({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoJoinCode, phase]);
 
+  // Auto-fire random matchmaking as soon as the lobby is ready. The
+  // arena page is now live-only; nobody lands on the lobby because
+  // they wanted to read it. One-shot — guarded by a ref so it doesn't
+  // re-queue on every re-render or after a match ends. The user can
+  // still cancel via the "Cancel" button in the Matchmaking screen,
+  // and the Lobby UI (recent opponents, mode picker, private code)
+  // is still accessible via that cancel path.
+  const autoQueuedRef = useRef(false);
+  useEffect(() => {
+    if (autoJoinCode || auto) return; // private invite / tournament — skip
+    if (phase !== "lobby") return;
+    if (autoQueuedRef.current) return;
+    autoQueuedRef.current = true;
+    void startRandomMatch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, autoJoinCode, auto]);
+
   // Auto-rematch — when a match ends and the toggle is on, queue
   // another random match after a brief pause so the user can see
   // their result first.
@@ -1138,7 +1155,11 @@ export function LiveMatch({
         body: JSON.stringify({ peerId: myId })
       }).catch(() => {});
     }
-    onClose();
+    // Drop the user into the lobby UI (recent opponents, private
+    // code, mode picker) rather than navigating out of /arena.
+    // onClose is reserved for "I'm done with the arena entirely" —
+    // it's wired to the back-arrow link at the top of the page.
+    setPhase("lobby");
   }
 
   // Best-effort queue cleanup on tab close. Without this, every closed
@@ -1447,13 +1468,21 @@ export function LiveMatch({
     const finishRound = () => {
       // Score the quality-weighted consensus face built from all good
       // frames during this round — much more stable than averaging
-      // per-frame scores.
+      // per-frame scores. Consensus threshold lowered 5 → 3 so a
+      // slow phone with thin sampling still produces a real score
+      // instead of falling through to the live-HUD trimmed-mean
+      // or the default 50.
       const accum = landmarkAccumRef.current;
       const weights = weightAccumRef.current;
       let finalVal = 50;
-      if (accum.length >= 5) {
+      if (accum.length >= 3) {
         const cons = consensusLandmarksWeighted(accum, weights);
         const score = computeEdgeScore(cons);
+        finalVal = Math.round(scoreFor(score, criterion));
+      } else if (accum.length >= 1) {
+        // Only 1-2 detected frames — still better than throwing them
+        // away. Score the most recent landmark set directly.
+        const score = computeEdgeScore(accum[accum.length - 1]);
         finalVal = Math.round(scoreFor(score, criterion));
       } else if (sampleBufferRef.current.length > 0) {
         finalVal = Math.round(trimmedMean(sampleBufferRef.current, 0.15));
@@ -1490,15 +1519,15 @@ export function LiveMatch({
       }
 
       try {
-        // Use SSD-Mobilenet when available for noticeably more accurate
-        // landmark localization; fall back to TinyFaceDetector at 416
-        // (vs the old 320) when SSD didn't load. scoreThreshold/min-
-        // confidence kept at 0.55 so low-confidence misdetects are
-        // dropped before they can poison the consensus.
+        // Detection thresholds relaxed: 0.55 was rejecting too many
+        // frames on phones under mediocre lighting, leaving the round
+        // with zero accumulated landmarks and a fallback-50 final
+        // score. Tiny + 416 already filters obvious junk; pushing
+        // below 0.40 risks false positives.
         const detectorOpts =
           detectorRef.current === "ssd"
-            ? new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55 })
-            : new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 });
+            ? new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 })
+            : new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
         const det = await faceapi
           .detectSingleFace(video, detectorOpts)
           .withFaceLandmarks();
@@ -1519,7 +1548,7 @@ export function LiveMatch({
         const STALE_MS = 250;
         const now = performance.now();
         if (
-          (!det || det.detection.score < 0.55) &&
+          (!det || det.detection.score < 0.4) &&
           overlay &&
           ctx &&
           lastDrawnLandmarksRef.current &&
@@ -1544,7 +1573,7 @@ export function LiveMatch({
           );
         }
 
-        if (det && det.detection.score >= 0.55) {
+        if (det && det.detection.score >= 0.4) {
           const points: Pt[] = det.landmarks.positions.map((p) => ({
             x: p.x,
             y: p.y
@@ -1602,9 +1631,15 @@ export function LiveMatch({
           const weight = baseQ * brightFactor * sharpFactor;
 
           // Accumulate raw landmarks + weights for the end-of-round
-          // weighted consensus score. Frames below a quality floor are
-          // still used for the live HUD but skipped for scoring.
-          if (weight > 0.15) {
+          // weighted consensus. The previous 0.15 floor was too
+          // aggressive: phones under mediocre lighting could drop
+          // below it on every frame, leaving the round with an empty
+          // accumulator and the fallback-50 final score. The
+          // consensus algorithm already weights frames internally,
+          // so accepting low-weight frames just makes the consensus
+          // slightly noisier — far better than scoring 50 because
+          // we threw away every sample.
+          if (weight > 0.02) {
             landmarkAccumRef.current.push(points);
             weightAccumRef.current.push(weight);
           }
@@ -1621,7 +1656,11 @@ export function LiveMatch({
           const v = scoreFor(liveScoreObj, criterion);
           sampleBufferRef.current.push(v);
 
-          if (sampleBufferRef.current.length >= 5) {
+          // Live HUD updates as soon as we have any detected frame so
+          // the user sees the scanner reacting immediately — was 5,
+          // which on slow devices delayed the live indicator until
+          // halfway through the round.
+          if (sampleBufferRef.current.length >= 1) {
             const liveVal = Math.round(v);
             setLiveMine(liveVal);
 

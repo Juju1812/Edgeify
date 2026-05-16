@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Footer } from "@/components/Footer";
 import { LiveMatch } from "@/components/Arena/LiveMatch";
@@ -115,12 +115,16 @@ export default function ArenaPage() {
 
 function ArenaPageInner() {
   const { user, status, ready, update } = useUser();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const inviteCode = (searchParams.get("join") || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 6);
-  const [mode, setMode] = useState<Mode>(inviteCode.length === 6 ? "live" : "select");
+  // Arena is now live-only — the bot-driven "Quick Match" mode is
+  // gone. Land users directly in the LiveMatch lobby so joining a
+  // ranked match is a single click instead of three.
+  const [mode, setMode] = useState<Mode>("live");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [searchBand, setSearchBand] = useState(100);
   // Per-round boost activations — set of round indices where the user
@@ -358,27 +362,12 @@ function ArenaPageInner() {
           <p className="label-xs">1V1 Arena</p>
           <h1 className="heading-card mt-2 text-3xl">Ranked Matchmaking</h1>
         </div>
-        {mode !== "select" && (
-          <button
-            onClick={() => {
-              setMode("select");
-              setPhase("lobby");
-            }}
-            className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-white/60 transition hover:border-white/20 hover:text-white"
-          >
-            ← Change mode
-          </button>
-        )}
       </div>
 
       <div className="mt-8">
-        {mode === "select" && (
-          <ModeSelect onPick={(m) => setMode(m)} />
-        )}
-
         {mode === "live" && (
           <LiveMatch
-            onClose={() => setMode("select")}
+            onClose={() => router.push("/")}
             autoJoinCode={inviteCode.length === 6 ? inviteCode : undefined}
           />
         )}
