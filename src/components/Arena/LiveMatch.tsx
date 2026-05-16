@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   computeEdgeScore,
@@ -591,7 +591,15 @@ export function LiveMatch({
   // Canvas for the AR overlay on the local video tile during scanning.
   const localOverlayElRef = useRef<HTMLCanvasElement | null>(null);
 
-  const remoteVideoCallback = (el: HTMLVideoElement | null) => {
+  // CRITICAL: keep these ref callbacks STABLE across renders. Inline
+  // arrows would be recreated on every state update, and React would
+  // re-invoke ref callbacks whose identity changed — first with null,
+  // then with the element. During scanning (where state ticks dozens
+  // of times per second), that meant localVideoRef.current was
+  // flapping between null and the element constantly, AND the
+  // loadedmetadata listener was being re-registered each time (memory
+  // leak + duplicate sync calls).
+  const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoElRef.current = el;
     if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
       el.srcObject = remoteStreamRef.current;
@@ -607,11 +615,35 @@ export function LiveMatch({
       el.addEventListener("loadedmetadata", sync);
       el.addEventListener("resize", sync);
     }
-  };
+  }, []);
 
-  const localOverlayCallback = (el: HTMLCanvasElement | null) => {
+  const localOverlayCallback = useCallback((el: HTMLCanvasElement | null) => {
     localOverlayElRef.current = el;
-  };
+  }, []);
+
+  // Local video element — stable across re-renders for the same reason
+  // as remoteVideoCallback. Reads localStreamRef from the ref (not from
+  // state) so the useCallback dep list stays empty.
+  const localVideoCallback = useCallback((el: HTMLVideoElement | null) => {
+    localVideoRef.current = el;
+    if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      el.play().catch(() => {});
+    }
+    if (el) {
+      const sync = () => {
+        const overlay = localOverlayElRef.current;
+        if (overlay && el.videoWidth > 0 && el.videoHeight > 0) {
+          overlay.width = el.videoWidth;
+          overlay.height = el.videoHeight;
+          setLocalVideoAspect(`${el.videoWidth} / ${el.videoHeight}`);
+        }
+      };
+      sync();
+      el.addEventListener("loadedmetadata", sync);
+      el.addEventListener("resize", sync);
+    }
+  }, []);
 
   // ─── Initialize: load models, open camera ─────────────────────────
   useEffect(() => {
@@ -1095,16 +1127,19 @@ export function LiveMatch({
         return;
       }
 
-      // No immediate match — start polling. The UI clock is driven
-      // independently by an effect on `phase`; this interval only
-      // hits the server every 1500ms.
-      const tick = setInterval(async () => {
+      // No immediate match — start polling. Single inline handler so
+      // the FIRST poll fires immediately (instead of waiting 1.5s),
+      // catching the symmetric-race case where both clients self-
+      // enqueued in the same instant and either can claim the other
+      // via /poll step-2.
+      const pollOnce = async () => {
         if (matchedRef.current) {
-          window.clearInterval(tick);
-          pollTimerRef.current = null;
+          if (pollTimerRef.current) {
+            window.clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
           return;
         }
-
         try {
           const pollRes = await fetch("/api/match/poll", {
             method: "POST",
@@ -1115,8 +1150,10 @@ export function LiveMatch({
           if (pollJson?.matched) {
             matchedRef.current = true;
             isHostRef.current = !!pollJson.iAmHost;
-            window.clearInterval(tick);
-            pollTimerRef.current = null;
+            if (pollTimerRef.current) {
+              window.clearInterval(pollTimerRef.current);
+              pollTimerRef.current = null;
+            }
             // If the poll claimed someone for us (we're the GUEST in
             // step-2 of /api/match/poll), we need to dial them. If a
             // remote peer claimed us via /enqueue (we're the HOST), the
@@ -1133,7 +1170,12 @@ export function LiveMatch({
         } catch {
           /* network blip — keep polling */
         }
-      }, 1500);
+      };
+      // Fire one poll right away — without this, two clients queuing
+      // within 100ms of each other would still wait 1.5s before either
+      // could pair via the symmetric step-2 claim.
+      void pollOnce();
+      const tick = setInterval(pollOnce, 1500);
       pollTimerRef.current = tick as unknown as number;
     } catch (e: unknown) {
       const msg = (e as { message?: string }).message;
@@ -1958,34 +2000,7 @@ export function LiveMatch({
 
       {(phase === "vs" || phase === "scanning" || phase === "between") && (
         <Arena
-          mineRef={(el) => {
-            // Point face-api's source at the visible video element
-            // (it's actually mounted with live frames flowing). When
-            // the element unmounts we get el=null and clear the ref.
-            localVideoRef.current = el;
-            if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
-              el.srcObject = localStreamRef.current;
-              el.play().catch(() => {});
-            }
-            // Sync the overlay canvas dimensions to the actual video
-            // resolution once metadata is known. Phones often produce
-            // 480x640 portrait or 720x1280 streams — without this the
-            // landmarks land in a tiny corner of the overlay because
-            // the canvas internal pixel space is hardcoded to 640x480.
-            if (el) {
-              const sync = () => {
-                const overlay = localOverlayElRef.current;
-                if (overlay && el.videoWidth > 0 && el.videoHeight > 0) {
-                  overlay.width = el.videoWidth;
-                  overlay.height = el.videoHeight;
-                  setLocalVideoAspect(`${el.videoWidth} / ${el.videoHeight}`);
-                }
-              };
-              sync();
-              el.addEventListener("loadedmetadata", sync);
-              el.addEventListener("resize", sync);
-            }
-          }}
+          mineRef={localVideoCallback}
           oppRef={remoteVideoCallback}
           overlayRef={localOverlayCallback}
           phase={phase}
