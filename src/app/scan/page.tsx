@@ -1,0 +1,247 @@
+"use client";
+
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { clsx } from "clsx";
+import { api, ApiError } from "@/lib/client/api";
+import { captureBurst, grabThumb, useCamera } from "@/lib/client/camera";
+import { useRequireAuth } from "@/lib/client/use-require-auth";
+import type { MeProfile, Traits } from "@/lib/shared/types";
+import { Button, ButtonLink, Card, Notice, Spinner } from "@/components/ui";
+import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
+
+type Reading = {
+  overall: number;
+  traits: Traits;
+  headline: string;
+  strengths: string[];
+  improvements: string[];
+  confidence: "low" | "medium" | "high";
+};
+
+type Phase =
+  | { k: "intro" }
+  | { k: "countdown"; n: number }
+  | { k: "analyzing" }
+  | { k: "result"; reading: Reading; me: MeProfile }
+  | { k: "error"; message: string; retry: boolean };
+
+export default function ScanPage() {
+  const { me, setMe } = useRequireAuth();
+  const cam = useCamera();
+  const [phase, setPhase] = useState<Phase>({ k: "intro" });
+
+  async function run() {
+    const stream = await cam.start();
+    const video = cam.videoRef.current;
+    if (!stream || !video) return;
+    for (const n of [3, 2, 1]) {
+      setPhase({ k: "countdown", n });
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    const frames = await captureBurst(video, 3, 500);
+    const thumb = grabThumb(video);
+    setPhase({ k: "analyzing" });
+    try {
+      const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb } });
+      setMe(r.me, true);
+      setPhase({ k: "result", reading: r.reading, me: r.me });
+      cam.stop();
+    } catch (e) {
+      const err = e instanceof ApiError ? e : null;
+      setPhase({
+        k: "error",
+        message: err?.message || "Couldn't reach Edgify. Check your connection.",
+        retry: err?.status !== 429
+      });
+    }
+  }
+
+  if (!me) {
+    return (
+      <main className="page flex justify-center pt-24">
+        <Spinner />
+      </main>
+    );
+  }
+
+  if (phase.k === "result") return <Result reading={phase.reading} me={phase.me} onAgain={() => setPhase({ k: "intro" })} />;
+
+  const camLive = cam.state === "live";
+  return (
+    <main className="page">
+      <div className="mx-auto max-w-[720px]">
+        <div className="mb-6 text-center md:mb-8">
+          <h1 className="display text-[34px] md:text-[44px]">{me.score ? "Scan again" : "Get your score"}</h1>
+          <p className="mt-1.5 text-[17px] text-ink-3">
+            Face a window or a lamp, look straight ahead, and keep a neutral face.
+          </p>
+        </div>
+
+        <Card className="overflow-hidden p-3">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[22px] bg-[#e9e9ee] sm:aspect-[4/3]">
+            <video
+              ref={cam.videoRef}
+              playsInline
+              muted
+              className={clsx(
+                "h-full w-full -scale-x-100 object-cover transition-opacity duration-500",
+                camLive ? "opacity-100" : "opacity-0"
+              )}
+            />
+            {/* Face guide */}
+            {camLive && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="h-[72%] w-auto aspect-[3/4] rounded-[50%] border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
+              </div>
+            )}
+            {!camLive && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
+                {cam.state === "starting" ? (
+                  <Spinner />
+                ) : cam.state === "denied" ? (
+                  <p className="max-w-xs text-[15px] text-ink-2">
+                    Camera access is blocked. Allow it in your browser&apos;s address bar, then try again.
+                  </p>
+                ) : cam.state === "unavailable" ? (
+                  <p className="max-w-xs text-[15px] text-ink-2">We couldn&apos;t find a camera on this device.</p>
+                ) : (
+                  <>
+                    <CameraGlyph />
+                    <p className="text-[15px] text-ink-3">Your camera turns on when you start.</p>
+                  </>
+                )}
+              </div>
+            )}
+            <AnimatePresence>
+              {phase.k === "countdown" && (
+                <motion.div
+                  key={phase.n}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.2 }}
+                  className="absolute inset-0 flex items-center justify-center text-[120px] font-bold text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.35)]"
+                >
+                  {phase.n}
+                </motion.div>
+              )}
+              {phase.k === "analyzing" && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/70 backdrop-blur-md"
+                >
+                  <Spinner className="h-9 w-9" />
+                  <p className="text-[17px] font-medium text-ink">Analyzing your face…</p>
+                  <p className="text-[14px] text-ink-3">This takes about ten seconds.</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="flex flex-col items-center gap-3 px-2 pb-3 pt-5">
+            {phase.k === "error" && (
+              <div className="w-full">
+                <Notice tone="error">{phase.message}</Notice>
+              </div>
+            )}
+            {(phase.k === "intro" || (phase.k === "error" && phase.retry)) && (
+              <Button size="lg" onClick={run} className="min-w-[220px]" disabled={cam.state === "starting"}>
+                {phase.k === "error" ? "Try again" : camLive ? "Start scan" : "Turn on camera & scan"}
+              </Button>
+            )}
+            <p className="text-center text-[13px] text-ink-4">
+              Three frames are sent to our AI to score, then discarded. A small thumbnail becomes your profile photo.
+            </p>
+          </div>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
+function Result({ reading, me, onAgain }: { reading: Reading; me: MeProfile; onAgain: () => void }) {
+  const avg = me.score;
+  const multiple = (avg?.readings ?? 1) > 1;
+  return (
+    <main className="page">
+      <div className="mx-auto max-w-[920px]">
+        <Card className="animate-fade-up p-7 md:p-10">
+          <div className="flex flex-col items-center gap-8 md:flex-row md:items-center md:gap-12">
+            <ScoreRing value={reading.overall} size={224} />
+            <div className="text-center md:text-left">
+              <p className="eyebrow">{tierLabel(reading.overall)}</p>
+              <h1 className="display mt-2 text-[30px] leading-[1.1] md:text-[38px]">{reading.headline}</h1>
+              {multiple && avg && (
+                <p className="mt-3 text-[15px] text-ink-3">
+                  Your score is <span className="font-semibold text-ink">{avg.overall}</span> — the average of your last{" "}
+                  {avg.readings} readings, so one bad angle never sinks you.
+                </p>
+              )}
+              {reading.confidence === "low" && (
+                <p className="mt-3 text-[14px] text-warn">Low-confidence read — better lighting will give a truer score.</p>
+              )}
+              <div className="mt-6 flex flex-wrap justify-center gap-3 md:justify-start">
+                <ButtonLink href="/play" size="lg">
+                  Play 1v1
+                </ButtonLink>
+                <Button variant="secondary" size="lg" onClick={onAgain}>
+                  Scan again
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <div className="mt-5 grid gap-5 md:grid-cols-[1.25fr_1fr]">
+          <Card className="animate-fade-up p-7 [animation-delay:120ms]">
+            <h2 className="text-[22px] font-semibold tracking-tight">Trait breakdown</h2>
+            <div className="mt-5">
+              <TraitBars traits={reading.traits} />
+            </div>
+          </Card>
+          <div className="flex flex-col gap-5">
+            <Card className="animate-fade-up p-7 [animation-delay:200ms]">
+              <h2 className="text-[22px] font-semibold tracking-tight">Strengths</h2>
+              <ul className="mt-4 flex flex-col gap-3">
+                {reading.strengths.map((s) => (
+                  <li key={s} className="flex gap-3 text-[15px] text-ink-2">
+                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card className="animate-fade-up p-7 [animation-delay:280ms]">
+              <h2 className="text-[22px] font-semibold tracking-tight">Easy wins</h2>
+              <ul className="mt-4 flex flex-col gap-3">
+                {reading.improvements.map((s) => (
+                  <li key={s} className="flex gap-3 text-[15px] text-ink-2">
+                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-ink-4" />
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        </div>
+        <p className="mt-6 text-center text-[13px] text-ink-4">
+          Scores are an AI&apos;s opinion, for fun. They don&apos;t define you.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+function CameraGlyph() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden className="text-ink-4">
+      <path
+        d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2l1.1-1.6A1.5 1.5 0 0 1 10 3.8h4a1.5 1.5 0 0 1 1.2.6L16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <circle cx="12" cy="12.3" r="3.4" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}

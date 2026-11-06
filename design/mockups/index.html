@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edgify mockups</title>
+<style>
+  :root { --bg:#f5f5f7; --fg:#1d1d1f; --muted:#6e6e73; --card:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:16px/1.5 -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+  header { max-width:1400px; margin:0 auto; padding:48px 24px 8px; }
+  h1 { font-size:40px; letter-spacing:-0.02em; margin:0 0 6px; }
+  header p { color:var(--muted); margin:0; }
+  main { max-width:1400px; margin:0 auto; padding:24px; display:grid; gap:28px;
+    grid-template-columns:repeat(auto-fit, minmax(560px, 1fr)); }
+  figure { margin:0; background:var(--card); border-radius:28px; padding:14px;
+    box-shadow:0 10px 40px rgba(0,0,0,.08); }
+  img { display:block; width:100%; border-radius:18px; cursor:zoom-in; background:#e8e8ed; min-height:200px; }
+  figcaption { padding:14px 8px 4px; display:flex; gap:12px; align-items:baseline; }
+  .tag { font-weight:700; background:var(--fg); color:#fff; border-radius:999px; padding:2px 12px; font-size:14px; }
+  .name { font-weight:600; font-size:18px; }
+  .desc { color:var(--muted); font-size:14px; }
+  .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none;
+    align-items:center; justify-content:center; padding:24px; cursor:zoom-out; }
+  .lightbox.open { display:flex; }
+  .lightbox img { max-width:100%; max-height:100%; width:auto; border-radius:20px; }
+  @media (max-width:620px){ main { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Edgify — pick a direction</h1>
+  <p>Four home-screen concepts by Codex. Click any image to view full size. Refresh if one hasn't appeared yet.</p>
+</header>
+<main>
+  <figure><img src="option-a-pro-dark.png" alt="Option A"><figcaption><span class="tag">A</span><span class="name">Pro Dark</span><span class="desc">iPhone Pro / Vision Pro pages — black, cinematic</span></figcaption></figure>
+  <figure><img src="option-b-light.png" alt="Option B"><figcaption><span class="tag">B</span><span class="name">Light</span><span class="desc">apple.com light — airy, editorial</span></figcaption></figure>
+  <figure><img src="option-c-glass.png" alt="Option C"><figcaption><span class="tag">C</span><span class="name">Glass</span><span class="desc">visionOS frosted glass over a soft gradient</span></figcaption></figure>
+  <figure><img src="option-d-rings.png" alt="Option D"><figcaption><span class="tag">D</span><span class="name">Rings</span><span class="desc">Apple Fitness — vivid activity rings on dark</span></figcaption></figure>
+</main>
+<div class="lightbox" id="lb"><img id="lbimg" alt=""></div>
+<script>
+  const lb = document.getElementById('lb'), lbimg = document.getElementById('lbimg');
+  document.querySelectorAll('main img').forEach(i => i.addEventListener('click', () => { lbimg.src = i.src; lb.classList.add('open'); }));
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+</script>
+</body>
+</html>

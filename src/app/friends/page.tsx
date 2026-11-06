@@ -1,416 +1,434 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Footer } from "@/components/Footer";
-import { OwnerBadge } from "@/components/OwnerBadge";
-import { useUser } from "@/lib/user-context";
-import { useToast } from "@/lib/toast-context";
-import { rankFromElo } from "@/lib/rank";
-import { flagFor } from "@/lib/flag";
-import { appendDm, getThread, type DmMessage } from "@/lib/dms";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { clsx } from "clsx";
+import { api, ApiError } from "@/lib/client/api";
+import { useSession } from "@/lib/client/session";
+import { Avatar, Button, Card, Empty, Input, Notice, PageTitle } from "@/components/ui";
 import {
-  exportFriendsCSV,
-  getExtras,
-  setNick,
-  setNote
-} from "@/lib/friend-extras";
+  challengeFriend,
+  relativeTime,
+  Segmented,
+  SkeletonRow,
+  useVisiblePoll
+} from "@/components/social/helpers";
 
-type Friend = {
-  username: string;
-  online: boolean;
-  elo: number;
-  faceDataUrl: string | null;
-  countryCode: string | null;
+type FriendRow = { username: string; online: boolean; elo: number; overall: number | null; hasFace: boolean };
+type Conversation = {
+  with: string;
+  lastAt: number;
+  last: { from: string; text: string; at: number } | null;
+  unread: boolean;
 };
+type Tab = "friends" | "messages";
 
 export default function FriendsPage() {
-  const { authedRemote, status } = useUser();
-  const { toast } = useToast();
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [add, setAdd] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [chatOpen, setChatOpen] = useState<string | null>(null);
+  return (
+    <Suspense fallback={<main className="page" />}>
+      <FriendsInner />
+    </Suspense>
+  );
+}
 
-  async function refresh() {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem("edgify:auth:token:v1");
-      if (!token) {
-        setFriends([]);
-        return;
-      }
-      const res = await fetch("/api/friends", {
-        headers: { authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) {
-        setFriends([]);
-        return;
-      }
-      const data = await res.json();
-      setFriends(data.friends || []);
-    } finally {
-      setLoading(false);
-    }
-  }
+function FriendsInner() {
+  const { me, loading } = useSession();
+  const router = useRouter();
+  const path = usePathname();
+  const params = useSearchParams();
+  const tab: Tab = params.get("tab") === "messages" ? "messages" : "friends";
 
   useEffect(() => {
-    if (authedRemote) refresh();
-    else setLoading(false);
-  }, [authedRemote]);
+    if (!loading && !me) router.replace(`/login?next=${encodeURIComponent(path + (tab === "messages" ? "?tab=messages" : ""))}`);
+  }, [loading, me, router, path, tab]);
 
-  async function mutate(action: "add" | "remove", target: string) {
-    setBusy(true);
-    try {
-      const token = localStorage.getItem("edgify:auth:token:v1");
-      if (!token) return;
-      const res = await fetch("/api/friends", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action, target })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast(data.error === "no_such_user" ? "No such user." : "Couldn't update friends.", { kind: "error" });
-        return;
-      }
-      if (action === "add") toast(`Added ${target}`, { kind: "success", emoji: "🤝" });
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [unread, setUnread] = useState(0);
 
-  if (status === "guest") {
-    return (
-      <main className="mx-auto min-h-screen max-w-2xl px-6 pt-10">
-        <p className="text-sm text-white/40">Sign in to manage friends.</p>
-      </main>
-    );
-  }
+  const setTab = (t: Tab) => router.replace(t === "messages" ? "/friends?tab=messages" : "/friends", { scroll: false });
+
+  if (!me) return <main className="page" />;
 
   return (
-    <main className="mx-auto min-h-screen max-w-3xl px-6 pt-10 pb-16">
-      <Link href="/" className="label-xs inline-flex items-center gap-2 text-white/40 hover:text-white">
-        ← Back to Lobby
-      </Link>
-      <div className="mt-6">
-        <p className="label-xs">Friends</p>
-        <h1 className="heading-card mt-2 text-3xl">Your Crew</h1>
+    <main className="page">
+      <PageTitle title="Friends" subtitle="Your people, your messages, your face-offs." />
+      <Segmented
+        className="mb-6"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "friends", label: "Friends" },
+          {
+            value: "messages",
+            label: (
+              <>
+                Messages
+                {unread > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white">
+                    {unread}
+                  </span>
+                )}
+              </>
+            )
+          }
+        ]}
+      />
+      {/* Both tabs stay mounted so the unread badge keeps updating. */}
+      <div hidden={tab !== "friends"}>
+        <FriendsTab />
       </div>
-
-      <FriendSearch onAdd={(u) => mutate("add", u)} busy={busy} />
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (add.trim().length >= 2) mutate("add", add.trim());
-          setAdd("");
-        }}
-        className="glass mt-3 flex gap-2 rounded-xl p-3"
-      >
-        <input
-          value={add}
-          onChange={(e) => setAdd(e.target.value.slice(0, 16).replace(/[^A-Za-z0-9_-]/g, ""))}
-          placeholder="Or add by exact callsign…"
-          className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm uppercase tracking-[0.18em] text-white outline-none focus:border-edge-cyan"
-        />
-        <button
-          type="submit"
-          disabled={busy || add.trim().length < 2}
-          className="rounded-lg border border-edge-cyan/50 bg-edge-cyan/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/25 disabled:opacity-40"
-        >
-          Add
-        </button>
-      </form>
-
-      {friends.length > 0 && (
-        <div className="mt-3 flex justify-end">
-          <button
-            onClick={() => {
-              const csv = exportFriendsCSV(friends.map((f) => f.username));
-              const blob = new Blob([csv], { type: "text/csv" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `edgify-friends-${Date.now()}.csv`;
-              a.click();
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
-            }}
-            className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/55 transition hover:border-edge-cyan/40 hover:text-edge-cyan"
-          >
-            Export CSV
-          </button>
-        </div>
-      )}
-
-      <div className="mt-6">
-        {loading ? (
-          <div className="glass h-32 animate-pulse rounded-2xl" />
-        ) : friends.length === 0 ? (
-          <div className="glass rounded-2xl px-6 py-12 text-center">
-            <div className="text-4xl">🪐</div>
-            <p className="mt-3 text-sm font-semibold text-white/85">
-              No friends yet.
-            </p>
-            <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-white/50">
-              Add by callsign above — once both of you are friends, you can
-              see each other online, queue private matches via{" "}
-              <span className="text-white/70">/play/[username]</span>, and
-              get notified when they win or lose a ranked match.
-            </p>
-            <p className="mt-3 text-[10px] uppercase tracking-[0.32em] text-edge-cyan">
-              💡 Tip · share your profile link to invite a friend
-            </p>
-          </div>
-        ) : (
-          <div className="glass divide-y divide-white/[0.04] overflow-hidden rounded-2xl">
-            {friends.map((f) => {
-              const rank = rankFromElo(f.elo);
-              return (
-                <div key={f.username}>
-                  <div className="flex items-center justify-between gap-3 px-4 py-3">
-                    <Link
-                      href={`/u/${encodeURIComponent(f.username)}`}
-                      className="flex flex-1 items-center gap-3 truncate"
-                    >
-                      {f.faceDataUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={f.faceDataUrl}
-                          alt=""
-                          className="h-10 w-10 rounded-lg border border-white/10 object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-base">
-                          {rank.emoji}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold uppercase tracking-[0.16em] text-white">
-                          {f.countryCode && (
-                            <span className="mr-2">{flagFor(f.countryCode)}</span>
-                          )}
-                          {f.username}
-                          <OwnerBadge name={f.username} size="xs" />
-                          <span
-                            className={
-                              "ml-2 inline-block h-2 w-2 rounded-full " +
-                              (f.online ? "bg-emerald-400" : "bg-white/20")
-                            }
-                          />
-                        </p>
-                        <p
-                          className="text-[10px] uppercase tracking-[0.22em]"
-                          style={{ color: rank.color }}
-                        >
-                          {rank.label} · {f.elo}
-                        </p>
-                      </div>
-                    </Link>
-                    <button
-                      onClick={() =>
-                        setChatOpen(chatOpen === f.username ? null : f.username)
-                      }
-                      className="rounded-md border border-edge-cyan/30 bg-edge-cyan/[0.06] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/60"
-                    >
-                      {chatOpen === f.username ? "Close" : "DM"}
-                    </button>
-                    <button
-                      onClick={() => mutate("remove", f.username)}
-                      className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-500/50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <AnimatePresence>
-                    {chatOpen === f.username && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden border-t border-white/[0.04] bg-black/30"
-                      >
-                        <DmThread friend={f.username} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div hidden={tab !== "messages"}>
+        <MessagesTab active={tab === "messages"} onUnread={setUnread} />
       </div>
-
-      <Footer />
     </main>
   );
 }
 
-/**
- * Live friend search — debounced query against /api/users/search.
- * Returns top 10 matches with rank info; clicking sends to /api/friends.
- */
-function FriendSearch({
-  onAdd,
-  busy
-}: {
-  onAdd: (username: string) => void;
-  busy: boolean;
-}) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<
-    { username: string; elo: number; faceDataUrl: string | null }[]
-  >([]);
+/* ───────────────────────────── Friends tab ───────────────────────────── */
 
-  useEffect(() => {
-    if (q.trim().length < 1) {
-      setResults([]);
-      return;
+function FriendsTab() {
+  const router = useRouter();
+  const { me } = useSession();
+  const [friends, setFriends] = useState<FriendRow[] | null>(null);
+  const [incoming, setIncoming] = useState<FriendRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ friends: FriendRow[]; incoming: FriendRow[] }>("/api/friends");
+      setFriends(r.friends);
+      setIncoming(r.incoming);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
     }
-    let cancelled = false;
-    const t = window.setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/users/search?q=${encodeURIComponent(q.trim())}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setResults(data.results || []);
-      } catch {
-        /* */
-      }
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [q]);
+  }, []);
+
+  useVisiblePoll(load, 20_000);
+
+  async function act(action: "add" | "accept" | "remove", username: string) {
+    setBusy(`${action}:${username}`);
+    setError(null);
+    try {
+      await api("/api/friends", { body: { action, username } });
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function challenge(username: string) {
+    setBusy(`challenge:${username}`);
+    setError(null);
+    try {
+      const code = await challengeFriend(username);
+      router.push(`/play/room/${code}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't create a room.");
+      setBusy(null);
+    }
+  }
+
+  const friendNames = new Set((friends || []).map((f) => f.username.toLowerCase()));
 
   return (
-    <div className="glass mt-6 rounded-xl p-3">
-      <p className="label-xs mb-2">Search players</p>
-      <input
-        value={q}
-        onChange={(e) =>
-          setQ(e.target.value.slice(0, 24).replace(/[^A-Za-z0-9_-]/g, ""))
-        }
-        placeholder="Search by callsign…"
-        className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none focus:border-edge-cyan"
+    <div className="flex flex-col gap-6">
+      <SearchCard
+        myName={me?.username || ""}
+        friendNames={friendNames}
+        onAdded={load}
+        onError={setError}
       />
-      {results.length > 0 && (
-        <ul className="mt-3 space-y-1">
-          {results.map((r) => (
-            <li
-              key={r.username}
-              className="flex items-center justify-between gap-2 rounded-md border border-white/[0.05] bg-white/[0.02] p-2"
-            >
-              <span className="flex items-center gap-2 truncate">
-                {r.faceDataUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={r.faceDataUrl}
-                    alt=""
-                    className="h-7 w-7 rounded-md border border-white/10 object-cover"
-                  />
-                ) : (
-                  <span className="h-7 w-7 rounded-md border border-white/10 bg-black/40" />
-                )}
-                <span className="truncate text-sm font-semibold uppercase tracking-[0.16em] text-white">
-                  {r.username}
-                </span>
-                <span className="stat-mono text-[10px] uppercase tracking-[0.22em] text-edge-cyan">
-                  {r.elo}
-                </span>
-              </span>
-              <button
-                onClick={() => {
-                  onAdd(r.username);
-                  setQ("");
-                  setResults([]);
-                }}
-                disabled={busy}
-                className="rounded-md border border-edge-cyan/30 bg-edge-cyan/[0.06] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan/60 disabled:opacity-40"
-              >
-                Add
-              </button>
-            </li>
-          ))}
-        </ul>
+
+      {error && <Notice tone="error">{error}</Notice>}
+
+      {incoming.length > 0 && (
+        <section>
+          <h2 className="eyebrow mb-3 px-1">Requests · {incoming.length}</h2>
+          <Card className="divide-y divide-line overflow-hidden">
+            {incoming.map((f) => (
+              <div key={f.username} className="flex items-center gap-3 px-4 py-3.5">
+                <Link href={`/u/${f.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar username={f.username} hasFace={f.hasFace} size={44} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[16px] font-semibold text-ink">{f.username}</span>
+                    <span className="block text-[13px] text-ink-3">Wants to be friends</span>
+                  </span>
+                </Link>
+                <Button size="sm" loading={busy === `accept:${f.username}`} onClick={() => act("accept", f.username)}>
+                  Accept
+                </Button>
+                <Button
+                  size="sm"
+                  variant="plain"
+                  loading={busy === `remove:${f.username}`}
+                  onClick={() => act("remove", f.username)}
+                >
+                  Decline
+                </Button>
+              </div>
+            ))}
+          </Card>
+        </section>
       )}
+
+      <section>
+        <h2 className="eyebrow mb-3 px-1">
+          {friends ? `Friends · ${friends.length}` : "Friends"}
+        </h2>
+        <Card className="overflow-hidden">
+          {friends === null ? (
+            <div className="divide-y divide-line">
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+          ) : friends.length === 0 ? (
+            <Empty
+              title="No friends yet"
+              body="Search for a username above to send a request. Friends can message you and challenge you to private face-offs."
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {friends.map((f) => (
+                <li key={f.username} className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:flex-nowrap">
+                  <Link href={`/u/${f.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    <Avatar username={f.username} hasFace={f.hasFace} size={44} online={f.online} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[16px] font-semibold text-ink">{f.username}</span>
+                      <span className="block text-[13px] text-ink-3">
+                        {f.online ? <span className="text-good">Online</span> : "Offline"}
+                        <span className="mx-1.5 text-ink-4">·</span>
+                        {f.overall !== null ? `Score ${f.overall}` : "No score yet"}
+                        <span className="mx-1.5 text-ink-4">·</span>
+                        <span className="tabular-nums">{f.elo} ELO</span>
+                      </span>
+                    </span>
+                  </Link>
+                  <div className="flex w-full gap-2 pl-14 sm:w-auto sm:pl-0">
+                    <Link
+                      href={`/friends/${f.username}`}
+                      className="inline-flex h-9 flex-1 items-center justify-center rounded-full bg-fill px-4 text-[14px] font-medium text-ink transition-colors hover:bg-fill-2 sm:flex-none"
+                    >
+                      Message
+                    </Link>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="flex-1 sm:flex-none"
+                      loading={busy === `challenge:${f.username}`}
+                      onClick={() => challenge(f.username)}
+                    >
+                      Challenge
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
     </div>
   );
 }
 
-/**
- * Inline DM thread that lives inside an expanded friend row. Messages
- * are local-only (no server delivery yet) but persist across reloads
- * via localStorage. Designed as the scaffolding for a future real-time
- * DM system.
- */
-function DmThread({ friend }: { friend: string }) {
-  const [msgs, setMsgs] = useState<DmMessage[]>([]);
-  const [text, setText] = useState("");
+function SearchCard({
+  myName,
+  friendNames,
+  onAdded,
+  onError
+}: {
+  myName: string;
+  friendNames: Set<string>;
+  onAdded: () => void;
+  onError: (m: string | null) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<string[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [sent, setSent] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState<string | null>(null);
 
   useEffect(() => {
-    const refresh = () => setMsgs(getThread(friend));
-    refresh();
-    window.addEventListener("edgify:dm-update", refresh);
-    return () => window.removeEventListener("edgify:dm-update", refresh);
-  }, [friend]);
+    const term = q.trim();
+    if (!term) {
+      setResults(null);
+      setSearching(false);
+      return;
+    }
+    if (!/^[A-Za-z0-9_-]{1,16}$/.test(term)) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const r = await api<{ results: string[] }>(`/api/users/search?q=${encodeURIComponent(term)}`, {
+          signal: ctrl.signal
+        });
+        setResults(r.results.filter((n) => n.toLowerCase() !== myName.toLowerCase()));
+      } catch {
+        if (!ctrl.signal.aborted) setResults([]);
+      } finally {
+        if (!ctrl.signal.aborted) setSearching(false);
+      }
+    }, 280);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, myName]);
 
-  function send(e: React.FormEvent) {
-    e.preventDefault();
-    const t = text.trim().slice(0, 280);
-    if (!t) return;
-    appendDm(friend, { from: "me", text: t });
-    setText("");
+  async function add(username: string) {
+    setAdding(username);
+    onError(null);
+    try {
+      const r = await api<{ relation: string }>("/api/friends", { body: { action: "add", username } });
+      setSent((s) => ({ ...s, [username.toLowerCase()]: r.relation }));
+      onAdded();
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : "Couldn't send that request.");
+    } finally {
+      setAdding(null);
+    }
   }
 
   return (
-    <div className="space-y-2 px-4 py-3">
-      <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-white/[0.05] bg-black/40 p-3 text-xs">
-        {msgs.length === 0 ? (
-          <p className="text-center text-[10px] uppercase tracking-[0.22em] text-white/30">
-            No messages yet · device-local
-          </p>
-        ) : (
-          msgs.map((m) => (
-            <div key={m.id} className={m.from === "me" ? "text-right" : "text-left"}>
-              <span
-                className={
-                  "inline-block max-w-[80%] rounded-lg px-3 py-1.5 " +
-                  (m.from === "me"
-                    ? "bg-edge-cyan/15 text-edge-cyan"
-                    : "bg-white/[0.04] text-white/80")
-                }
-              >
-                {m.text}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-      <form onSubmit={send} className="flex gap-2">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value.slice(0, 280))}
-          placeholder={`Message ${friend}…`}
-          className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-edge-cyan"
-        />
-        <button
-          type="submit"
-          disabled={!text.trim()}
-          className="rounded-lg border border-edge-cyan/40 bg-edge-cyan/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-edge-cyan transition hover:border-edge-cyan disabled:opacity-40"
+    <Card className="p-4 sm:p-5">
+      <label className="relative block">
+        <span className="sr-only">Find players by username</span>
+        <svg
+          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-ink-4"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden
         >
-          Send
-        </button>
-      </form>
-      <p className="text-[9px] uppercase tracking-[0.22em] text-white/30">
-        DMs are stored on this device only.
-      </p>
-    </div>
+          <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2" />
+          <path d="m16 16 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Find players by username"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          className="bg-fill pl-11 focus:bg-white"
+          maxLength={16}
+        />
+      </label>
+
+      {q.trim() && (
+        <div className="mt-2">
+          {searching && results === null ? (
+            <SkeletonRow />
+          ) : results && results.length === 0 ? (
+            <p className="px-2 py-4 text-center text-[14px] text-ink-3">
+              {searching ? "Searching…" : `No players found for “${q.trim()}”.`}
+            </p>
+          ) : (
+            <ul className={clsx("divide-y divide-line", searching && "opacity-60")}>
+              {(results || []).map((name) => {
+                const lc = name.toLowerCase();
+                const state = friendNames.has(lc) ? "friends" : sent[lc];
+                return (
+                  <li key={name} className="flex items-center gap-3 px-1 py-2.5">
+                    <Link href={`/u/${name}`} className="flex min-w-0 flex-1 items-center gap-3">
+                      <Avatar username={name} hasFace size={40} />
+                      <span className="truncate text-[16px] font-medium text-ink">{name}</span>
+                    </Link>
+                    {state === "friends" ? (
+                      <span className="px-3 text-[14px] text-ink-3">Friends</span>
+                    ) : state === "outgoing" ? (
+                      <span className="px-3 text-[14px] text-ink-3">Requested</span>
+                    ) : (
+                      <Button size="sm" variant="secondary" loading={adding === name} onClick={() => add(name)}>
+                        Add
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ───────────────────────────── Messages tab ──────────────────────────── */
+
+function MessagesTab({ active, onUnread }: { active: boolean; onUnread: (n: number) => void }) {
+  const { me } = useSession();
+  const [convos, setConvos] = useState<Conversation[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ conversations: Conversation[]; unread: number }>("/api/messages");
+      setConvos(r.conversations);
+      onUnread(r.unread);
+      setError(null);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+    }
+  }, [onUnread]);
+
+  // Poll faster while the tab is in view; slowly otherwise for the badge.
+  useVisiblePoll(load, active ? 8_000 : 30_000);
+
+  if (error && !convos) return <Notice tone="error">{error}</Notice>;
+
+  return (
+    <Card className="overflow-hidden">
+      {convos === null ? (
+        <div className="divide-y divide-line">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+      ) : convos.length === 0 ? (
+        <Empty
+          title="No messages yet"
+          body="Open a friend and say hi — or challenge them to a private face-off."
+        />
+      ) : (
+        <ul className="divide-y divide-line">
+          {convos.map((c) => {
+            const mine = c.last && me && c.last.from.toLowerCase() === me.username.toLowerCase();
+            return (
+              <li key={c.with}>
+                <Link
+                  href={`/friends/${c.with}`}
+                  className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-fill/60"
+                >
+                  <Avatar username={c.with} hasFace size={48} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-3">
+                      <span className={clsx("truncate text-[16px] text-ink", c.unread ? "font-bold" : "font-semibold")}>
+                        {c.with}
+                      </span>
+                      <span className="shrink-0 text-[13px] text-ink-3">{relativeTime(c.lastAt)}</span>
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-2">
+                      <span className={clsx("truncate text-[14px]", c.unread ? "text-ink" : "text-ink-3")}>
+                        {c.last ? `${mine ? "You: " : ""}${c.last.text}` : "No messages"}
+                      </span>
+                      {c.unread && <span className="ml-auto h-2.5 w-2.5 shrink-0 rounded-full bg-accent" aria-label="Unread" />}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

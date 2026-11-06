@@ -1,17 +1,9 @@
-import { NextResponse } from "next/server";
-import { getRedis, sessionKey } from "@/lib/auth-server";
+import { handle, json } from "@/lib/server/http";
+import { endSession } from "@/lib/server/auth";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const redis = getRedis();
-  if (!redis) return NextResponse.json({ ok: true });
-
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (token) {
-    await redis.del(sessionKey(token));
-  }
-  return NextResponse.json({ ok: true });
-}
+export const POST = handle(async () => {
+  await endSession();
+  return json({ ok: true });
+});

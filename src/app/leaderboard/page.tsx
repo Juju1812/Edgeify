@@ -1,367 +1,104 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Footer } from "@/components/Footer";
-import { OwnerBadge } from "@/components/OwnerBadge";
-import { rankFromElo } from "@/lib/rank";
-import { flagFor } from "@/lib/flag";
-import { useUser } from "@/lib/user-context";
-
-type Entry = {
-  username: string;
-  elo: number;
-  wins: number;
-  losses: number;
-  edgeScore: number;
-  faceDataUrl: string | null;
-  countryCode?: string | null;
-  updatedAt?: number;
-};
+import { useEffect, useState } from "react";
+import { clsx } from "clsx";
+import { api } from "@/lib/client/api";
+import { useSession } from "@/lib/client/session";
+import type { LeaderboardRow } from "@/lib/shared/types";
+import { Avatar, ButtonLink, Card, Empty, Flag, PageTitle } from "@/components/ui";
 
 export default function LeaderboardPage() {
-  const { user, status } = useUser();
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"global" | "friends" | "daily" | "weekly">("global");
-  const [region, setRegion] = useState<"world" | "country">("world");
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { me } = useSession();
+  const [rows, setRows] = useState<LeaderboardRow[] | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    // Force a profile sync first so the server's leaderboard ZSET
-    // catches up to whatever local state has — this re-adds the user
-    // if they fell off via the stale-row cleanup or anti-cheat repair.
-    // Gate is now intentionally permissive: only require an auth token,
-    // a username, and a face scan. The server's own gate decides
-    // whether to actually add the user to the leaderboard ZSET.
-    (async () => {
-      try {
-        if (
-          user.username &&
-          user.hasScanned &&
-          !user.hideFromBoard &&
-          typeof window !== "undefined"
-        ) {
-          const token = window.localStorage.getItem("edgify:auth:token:v1");
-          if (token) {
-            await fetch("/api/profile/sync", {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify(user)
-            }).catch(() => {});
-          }
-        }
-        const res = await fetch("/api/leaderboard");
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        if (!cancelled) setEntries(data.entries || []);
-      } catch {
-        if (!cancelled) setEntries([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api<{ rows: LeaderboardRow[] }>("/api/leaderboard")
+      .then((r) => setRows(r.rows))
+      .catch(() => setRows([]));
   }, []);
 
-  // Always patch the user's local row into the board when they have a
-  // scan + username — even if status hasn't fully ticked over to
-  // "ranked" yet. Previously the merge required status === "ranked"
-  // which excluded users whose local state was briefly out of sync
-  // (e.g. stale placementsLeft after a cache wipe), so they'd be
-  // invisible on their own leaderboard. The server still controls
-  // whether their row exists in `entries` — this just ensures the
-  // active user's freshest stats are reflected when they ARE present.
-  const all = useMemo<Entry[]>(() => {
-    if (
-      !user.username ||
-      user.hideFromBoard ||
-      !user.hasScanned
-    ) {
-      return entries;
-    }
-    const rest = entries.filter(
-      (e) => e.username.toLowerCase() !== user.username!.toLowerCase()
-    );
-    rest.push({
-      username: user.username,
-      elo: user.elo,
-      wins: user.wins,
-      losses: user.losses,
-      edgeScore: Math.round(user.edgeScore?.composite ?? 50),
-      faceDataUrl: user.faceDataUrl,
-      countryCode: user.countryCode,
-      // Stamp the local row with "right now" so daily/weekly tabs
-      // include it.
-      updatedAt: Date.now()
-    });
-    return rest.sort((a, b) => b.elo - a.elo);
-  }, [entries, user, status]);
-
-  const friendsSet = useMemo(() => {
-    const s = new Set<string>();
-    for (const f of user.friends) s.add(f.toLowerCase());
-    if (user.username) s.add(user.username.toLowerCase());
-    return s;
-  }, [user.friends, user.username]);
-
-  const filtered = useMemo(() => {
-    const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
-    const myCountry = (user.countryCode || "").toUpperCase();
-    return all
-      .filter((u) => {
-        if (tab === "friends") return friendsSet.has(u.username.toLowerCase());
-        if (tab === "daily") {
-          // Active within the last 24h. If updatedAt is missing (older
-          // entries), include them so the board isn't empty for new users.
-          return !u.updatedAt || now - u.updatedAt < dayMs;
-        }
-        if (tab === "weekly") {
-          return !u.updatedAt || now - u.updatedAt < 7 * dayMs;
-        }
-        return true;
-      })
-      .filter((u) => {
-        if (region === "world") return true;
-        if (!myCountry) return true; // no country set -> no-op filter
-        return (u.countryCode || "").toUpperCase() === myCountry;
-      })
-      .filter(
-        (u) => !query || u.username.toLowerCase().includes(query.toLowerCase())
-      );
-  }, [all, query, tab, region, friendsSet, user.countryCode]);
-
-  const myIndex = all.findIndex(
-    (u) => u.username.toLowerCase() === user.username?.toLowerCase()
-  );
-  const myRank = myIndex >= 0 ? myIndex + 1 : null;
+  const mine = rows?.find((r) => me && r.username.toLowerCase() === me.username.toLowerCase());
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 pt-10 pb-16">
-      <Link
-        href="/"
-        className="label-xs inline-flex items-center gap-2 text-white/40 transition hover:text-white"
-      >
-        ← Back to Lobby
-      </Link>
-
-      <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="label-xs text-edge-cyan">Season 1</p>
-          <h1 className="heading-display mt-2 text-4xl">Leaderboard</h1>
-          <p className="mt-1 text-sm text-white/50">
-            {loading
-              ? "Loading…"
-              : tab === "friends"
-                ? `${filtered.length} friend${filtered.length === 1 ? "" : "s"} on the board`
-                : `Top ${all.length} ranked players`}
-          </p>
-        </div>
-        {myRank !== null && (
-          <div className="glass rounded-xl px-4 py-3 text-right">
-            <p className="label-xs text-white/40">Your position</p>
-            <p className="stat-mono text-xl text-edge-cyan">#{myRank}</p>
-          </div>
-        )}
-      </div>
-
-      {all.length > 0 && (
-        <div className="mt-6 flex flex-wrap gap-3">
-          <div className="inline-flex flex-wrap rounded-lg border border-white/10 bg-black/30 p-1">
-            <TabButton active={tab === "global"} onClick={() => setTab("global")}>
-              Global
-            </TabButton>
-            <TabButton active={tab === "weekly"} onClick={() => setTab("weekly")}>
-              Weekly
-            </TabButton>
-            <TabButton active={tab === "daily"} onClick={() => setTab("daily")}>
-              Daily
-            </TabButton>
-            <TabButton active={tab === "friends"} onClick={() => setTab("friends")}>
-              Friends ({user.friends.length})
-            </TabButton>
-          </div>
-          {user.countryCode && (
-            <div className="inline-flex flex-wrap rounded-lg border border-white/10 bg-black/30 p-1">
-              <TabButton active={region === "world"} onClick={() => setRegion("world")}>
-                🌎 World
-              </TabButton>
-              <TabButton
-                active={region === "country"}
-                onClick={() => setRegion("country")}
-                title={`Players in ${user.countryCode.toUpperCase()}`}
-              >
-                {flagFor(user.countryCode) || "🌐"} My country
-              </TabButton>
-            </div>
-          )}
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search username…"
-            className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.18em] text-white placeholder:text-white/30 outline-none focus:border-edge-cyan"
-          />
-        </div>
-      )}
-
-      {!loading && all.length === 0 ? (
-        <div className="glass mt-6 rounded-2xl px-6 py-16 text-center">
-          <div className="text-5xl">👑</div>
-          <h2 className="heading-card mt-4 text-2xl">No ranked players yet</h2>
-          <p className="mx-auto mt-3 max-w-md text-sm text-white/50">
-            Be the first to climb the Edgify leaderboard. Calibrate in The Lab,
-            finish your 5 placement matches, and you&apos;ll appear here.
-          </p>
-          <Link
-            href="/lab"
-            className="mt-6 inline-block rounded-lg border border-edge-cyan/50 bg-edge-cyan/20 px-6 py-3 text-xs uppercase tracking-[0.22em] text-white transition hover:bg-edge-cyan/30"
-          >
-            Open The Lab →
-          </Link>
-        </div>
-      ) : (
-        <div className="glass mt-6 overflow-hidden rounded-2xl">
-          <div className="grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.04] px-5 py-3 text-[10px] uppercase tracking-[0.32em] text-white/40">
-            <span>#</span>
-            <span>User</span>
-            <span className="text-right">W/L</span>
-            <span className="text-right">Score</span>
-            <span className="text-right">ELO</span>
-          </div>
-          {loading ? (
-            <div className="px-5 py-12 text-center text-sm text-white/40">
-              Loading global rankings…
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-white/40">
-              No matches.
-            </div>
-          ) : (
-            filtered.map((u, i) => {
-              const rank = rankFromElo(u.elo);
-              const isMe =
-                user.username?.toLowerCase() === u.username.toLowerCase();
-              return (
-                <div
-                  key={u.username}
-                  className={
-                    "grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-4 border-b border-white/[0.02] px-5 py-3 text-sm transition " +
-                    (isMe ? "bg-edge-cyan/10" : "hover:bg-white/[0.02]")
-                  }
-                >
-                  <span className="font-mono text-white/40">#{i + 1}</span>
-                  <div className="flex items-center gap-3 truncate">
-                    <Avatar name={u.username} faceDataUrl={u.faceDataUrl} />
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold uppercase tracking-[0.16em] text-white">
-                        {u.countryCode && (
-                          <span className="mr-2" title={u.countryCode}>
-                            {flagFor(u.countryCode)}
-                          </span>
-                        )}
-                        {u.username}
-                        <OwnerBadge name={u.username} size="sm" />
-                        {isMe && (
-                          <span className="ml-2 rounded-full bg-edge-cyan/20 px-2 py-0.5 text-[9px] tracking-[0.22em] text-edge-cyan">
-                            YOU
-                          </span>
-                        )}
-                      </p>
-                      <p
-                        className="text-[10px] uppercase tracking-[0.22em]"
-                        style={{ color: rank.color }}
-                      >
-                        <span aria-hidden>{rank.emoji}</span> {rank.label}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-right text-xs text-white/60">
-                    {u.wins}/{u.losses}
-                  </span>
-                  <span className="text-right font-mono text-xs text-white/80">
-                    {Math.round(u.edgeScore)}
-                  </span>
-                  <span className="text-right font-semibold text-cyan-300">
-                    {u.elo}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      <Footer />
-    </main>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-  title
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  title?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={
-        "rounded-md px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition " +
-        (active
-          ? "bg-edge-cyan/20 text-edge-cyan"
-          : "text-white/45 hover:text-white/80")
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
-function Avatar({
-  name,
-  faceDataUrl
-}: {
-  name: string;
-  faceDataUrl: string | null;
-}) {
-  if (faceDataUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={faceDataUrl}
-        alt=""
-        className="h-9 w-9 shrink-0 rounded-lg border border-white/10 object-cover"
+    <main className="page">
+      <PageTitle
+        title="Leaderboard"
+        subtitle="The top 100 players, ranked by ELO from live face-offs."
+        right={
+          me && !mine ? (
+            <ButtonLink href="/play" variant="secondary">
+              {me.placementsLeft > 0 ? `Play ${me.placementsLeft} placement${me.placementsLeft === 1 ? "" : "s"} to rank` : "Play to climb"}
+            </ButtonLink>
+          ) : undefined
+        }
       />
-    );
-  }
-  const initials = name.replace(/[0-9]+$/g, "").slice(0, 2).toUpperCase();
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
-  return (
-    <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 text-[11px] font-semibold uppercase tracking-wider"
-      style={{
-        background: `linear-gradient(135deg, hsl(${hue}, 60%, 22%), hsl(${(hue + 40) % 360}, 60%, 12%))`,
-        color: `hsl(${hue}, 70%, 80%)`
-      }}
-    >
-      {initials}
-    </div>
+
+      {rows && rows.length >= 3 && (
+        <div className="mb-5 grid grid-cols-3 gap-3 md:gap-5">
+          {[rows[1], rows[0], rows[2]].map((r, i) => (
+            <Link key={r.username} href={`/u/${r.username}`}>
+              <Card className={clsx("flex flex-col items-center px-3 py-6 text-center transition-shadow hover:shadow-lift", i === 1 && "md:-translate-y-3")}>
+                <span className="eyebrow">#{r.rank}</span>
+                <Avatar username={r.username} hasFace={r.hasFace} size={i === 1 ? 84 : 68} className="mt-3" />
+                <span className="mt-3 max-w-full truncate text-[16px] font-semibold md:text-[18px]">{r.username}</span>
+                <span className="text-[14px] tabular-nums text-ink-3">{r.elo} ELO</span>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <Card className="overflow-hidden">
+        <div className="grid grid-cols-[44px_1fr_64px_72px] items-center gap-3 border-b border-line px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-4 md:grid-cols-[56px_1fr_90px_90px_100px] md:px-7">
+          <span>Rank</span>
+          <span>Player</span>
+          <span className="text-right">Score</span>
+          <span className="hidden text-right md:block">Record</span>
+          <span className="text-right">ELO</span>
+        </div>
+        {rows === null &&
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 border-b border-line px-5 py-4 last:border-0 md:px-7">
+              <span className="h-4 w-6 animate-pulse rounded-full bg-fill" />
+              <span className="h-10 w-10 animate-pulse rounded-full bg-fill" />
+              <span className="h-4 w-32 animate-pulse rounded-full bg-fill" />
+            </div>
+          ))}
+        {rows?.length === 0 && (
+          <Empty
+            title="No ranked players yet"
+            body="Finish three placement matches to appear here."
+            action={<ButtonLink href="/play">Play now</ButtonLink>}
+          />
+        )}
+        {rows?.map((r) => {
+          const isMe = me && r.username.toLowerCase() === me.username.toLowerCase();
+          return (
+            <Link
+              key={r.username}
+              href={`/u/${r.username}`}
+              className={clsx(
+                "grid grid-cols-[44px_1fr_64px_72px] items-center gap-3 border-b border-line px-5 py-3 transition-colors last:border-0 hover:bg-[#fafafc] md:grid-cols-[56px_1fr_90px_90px_100px] md:px-7",
+                isMe && "bg-accent-soft/60"
+              )}
+            >
+              <span className="text-[15px] font-semibold tabular-nums text-ink-3">{r.rank}</span>
+              <span className="flex min-w-0 items-center gap-3">
+                <Avatar username={r.username} hasFace={r.hasFace} size={40} />
+                <span className="truncate text-[16px] text-ink">
+                  {r.username} {r.country && <Flag code={r.country} />}
+                </span>
+              </span>
+              <span className="text-right text-[16px] tabular-nums text-ink-2">{r.overall ?? "–"}</span>
+              <span className="hidden text-right text-[15px] tabular-nums text-ink-3 md:block">
+                {r.wins}–{r.losses}
+              </span>
+              <span className="text-right text-[16px] font-semibold tabular-nums text-ink">{r.elo}</span>
+            </Link>
+          );
+        })}
+      </Card>
+    </main>
   );
 }

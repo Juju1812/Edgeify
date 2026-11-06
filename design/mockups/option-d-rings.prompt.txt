@@ -1,0 +1,10 @@
+﻿You are designing a UI mockup for EDGIFY, a web app where adults scan their face with their webcam and an AI gives them a looks score from 0-100 with a trait breakdown (Harmony, Eyes, Jaw & chin, Bone structure, Skin, Hair, Grooming). They can then play live 1v1 webcam face-offs against random people or friends (private room codes), climb a global leaderboard (ranked by ELO), and add friends.
+
+Design language for ALL options: inspired by Apple's own product websites and iOS/macOS - extremely premium, restrained, confident typography (a clean SF-Pro-like sans), generous whitespace, perfect alignment, subtle depth. EVERYTHING has rounded corners - cards, buttons (pill-shaped), inputs, avatars, images, the webcam frame. No sharp 90-degree corners anywhere. No clutter, no gaming neon, no busy badges. Spelling of any text must be correct; keep text minimal and large.
+
+Use your image generation tool to create ONE high-fidelity desktop web UI mockup image (landscape, 1536x1024) of the HOME screen for a signed-in user. It must show: top nav (Edgify wordmark, Home, Play, Leaderboard, Friends, round avatar), a hero area with the user's score shown big (e.g. 74) inside a circular ring with a short AI headline, two primary actions "Scan again" and "Play 1v1", a compact trait breakdown, and a small "Top players" leaderboard preview card with 4-5 rows of round avatars, names and ELO.
+
+Style direction for THIS option:
+OPTION D - 'Rings': like Apple Fitness / Activity. Dark background, the score shown as bold vivid gradient activity rings (red-pink, lime, cyan) - one ring per top trait - vivid but still premium and minimal, rounded heavy-weight typography for numbers.
+
+Save the image in the current directory as option-d-rings.png. Do not create any other files. Reply with only the saved path.

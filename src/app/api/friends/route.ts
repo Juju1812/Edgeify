@@ -1,85 +1,64 @@
-import { NextResponse } from "next/server";
-import { getRedis, sessionKey } from "@/lib/auth-server";
+import { handle, HttpError, json, readJson } from "@/lib/server/http";
+import { isValidUsername, requireUser } from "@/lib/server/auth";
+import { redis, K } from "@/lib/server/redis";
+import { acceptFriend, removeFriend, requestFriend } from "@/lib/server/social";
+import type { StoredProfile } from "@/lib/server/profile";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const friendsKey = (u: string) => `friends:v1:${u.toLowerCase()}`;
+export type FriendRow = {
+  username: string;
+  online: boolean;
+  elo: number;
+  overall: number | null;
+  hasFace: boolean;
+};
 
-async function authedUser(req: Request): Promise<string | null> {
-  const redis = getRedis();
-  if (!redis) return null;
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return null;
-  const sessRaw = await redis.get<string | { username: string }>(sessionKey(token));
-  if (!sessRaw) return null;
-  const sess = typeof sessRaw === "string" ? JSON.parse(sessRaw) : sessRaw;
-  return sess?.username || null;
+async function rows(names: string[]): Promise<FriendRow[]> {
+  if (!names.length) return [];
+  const [profiles, online] = await Promise.all([
+    redis().mget<(StoredProfile | string | null)[]>(...names.map((n) => K.profile(n))),
+    redis().mget<(string | null)[]>(...names.map((n) => K.online(n)))
+  ]);
+  return names
+    .map((n, i) => {
+      const raw = profiles[i];
+      const p: StoredProfile | null = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return {
+        username: p?.username || n,
+        online: !!online[i],
+        elo: p?.elo ?? 1000,
+        overall: p?.score?.overall ?? null,
+        hasFace: !!p?.hasFace
+      };
+    })
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username));
 }
 
-/**
- * GET /api/friends → list of friend usernames + their lb summaries
- *   (call without an "action" body)
- * POST /api/friends with body {action:"add"|"remove", target} → mutate
- */
-export async function GET(req: Request) {
-  const redis = getRedis();
-  if (!redis) return NextResponse.json({ friends: [] });
-  const me = await authedUser(req);
-  if (!me) return NextResponse.json({ error: "unauth" }, { status: 401 });
+export const GET = handle(async () => {
+  const me = await requireUser();
+  const [friends, incoming] = await Promise.all([
+    redis().smembers(K.friends(me)),
+    redis().smembers(K.friendReqIn(me))
+  ]);
+  return json({ friends: await rows(friends), incoming: await rows(incoming) });
+});
 
-  const list = (await redis.smembers(friendsKey(me))) || [];
-  if (list.length === 0) return NextResponse.json({ friends: [] });
+export const POST = handle(async (req: Request) => {
+  const me = await requireUser();
+  const { action, username } = await readJson<{ action?: string; username?: string }>(req);
+  if (!isValidUsername(username)) throw new HttpError(400, "bad_user", "Unknown player.");
+  const exists = await redis().hget<string>(K.user(username), "username");
+  if (!exists) throw new HttpError(404, "no_user", "That player doesn't exist.");
 
-  const summaries = await redis.mget<Array<string | object | null>>(
-    ...list.map((u) => `lb:summary:v1:${u.toLowerCase()}`)
-  );
-  const onlines = await redis.mget<Array<string | null>>(
-    ...list.map((u) => `online:v1:${u.toLowerCase()}`)
-  );
-
-  const friends = list.map((u, i) => {
-    const raw = summaries[i];
-    const obj = raw && typeof raw === "string" ? JSON.parse(raw) : raw || {};
-    return {
-      username: u,
-      online: !!onlines[i],
-      elo: (obj as { elo?: number }).elo || 0,
-      faceDataUrl: (obj as { faceDataUrl?: string }).faceDataUrl || null,
-      countryCode: (obj as { countryCode?: string }).countryCode || null
-    };
-  });
-  return NextResponse.json({ friends });
-}
-
-export async function POST(req: Request) {
-  const redis = getRedis();
-  if (!redis) return NextResponse.json({ error: "kv_off" }, { status: 503 });
-  const me = await authedUser(req);
-  if (!me) return NextResponse.json({ error: "unauth" }, { status: 401 });
-
-  let body: { action?: string; target?: string } = {};
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  if (action === "add") return json({ relation: await requestFriend(me, exists) });
+  if (action === "accept") {
+    await acceptFriend(me, exists);
+    return json({ relation: "friends" });
   }
-  const target = (body.target || "").trim();
-  if (!target || target.toLowerCase() === me.toLowerCase()) {
-    return NextResponse.json({ error: "bad_target" }, { status: 400 });
+  if (action === "remove") {
+    await removeFriend(me, exists);
+    return json({ relation: "none" });
   }
-
-  // Verify target is a real user
-  const exists = await redis.hget(`user:${target.toLowerCase()}`, "passwordHash");
-  if (!exists) return NextResponse.json({ error: "no_such_user" }, { status: 404 });
-
-  if (body.action === "add") {
-    await redis.sadd(friendsKey(me), target);
-  } else if (body.action === "remove") {
-    await redis.srem(friendsKey(me), target);
-  } else {
-    return NextResponse.json({ error: "bad_action" }, { status: 400 });
-  }
-  return NextResponse.json({ ok: true });
-}
+  throw new HttpError(400, "bad_action");
+});

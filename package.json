@@ -1,34 +1,26 @@
 {
   "name": "edgify",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "typecheck": "tsc --noEmit",
+    "score-test": "tsx scripts/score-test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.92.0",
-    "@prisma/client": "^5.22.0",
-    "@types/qrcode": "^1.5.6",
+    "@anthropic-ai/sdk": "^1.6.0",
     "@upstash/redis": "^1.37.0",
-    "@vercel/og": "^0.11.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
-    "face-api.js": "^0.22.2",
     "framer-motion": "^11.11.17",
     "next": "14.2.18",
-    "next-auth": "^4.24.10",
-    "peerjs": "^1.5.5",
-    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "stripe": "^22.1.0"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -38,8 +30,8 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.18",
+    "playwright-core": "^1.49.1",
     "postcss": "^8.4.49",
-    "prisma": "^5.22.0",
     "tailwindcss": "^3.4.15",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
