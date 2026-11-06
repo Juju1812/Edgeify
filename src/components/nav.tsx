@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
+import { useEffect, useRef } from "react";
 import { useSession } from "@/lib/client/session";
 import { Avatar, ButtonLink } from "./ui";
 
@@ -19,8 +20,18 @@ function active(path: string, href: string) {
 
 export function Nav() {
   const path = usePathname();
-  const { me, loading, faceVersion } = useSession();
+  const { me, loading, faceVersion, badges, refresh } = useSession();
   const inMatch = path.startsWith("/play/match/");
+  const social = badges.unread + badges.requests;
+
+  // Re-check badges when moving between pages (e.g. after reading a thread).
+  const lastRefresh = useRef(0);
+  useEffect(() => {
+    if (!me || Date.now() - lastRefresh.current < 4000) return;
+    lastRefresh.current = Date.now();
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
 
   return (
     <>
@@ -38,11 +49,12 @@ export function Nav() {
                   key={l.href}
                   href={l.href}
                   className={clsx(
-                    "rounded-full px-4 py-1.5 text-[15px] transition-colors",
+                    "relative rounded-full px-4 py-1.5 text-[15px] transition-colors",
                     active(path, l.href) ? "bg-fill-2 text-ink" : "text-ink-2 hover:text-ink"
                   )}
                 >
                   {l.label}
+                  {l.href === "/friends" && social > 0 && <Badge n={social} className="-right-0.5 -top-0.5" />}
                 </Link>
               ))}
             </nav>
@@ -82,10 +94,11 @@ export function Nav() {
                 key={l.href}
                 href={l.href}
                 className={clsx(
-                  "flex min-w-[64px] flex-col items-center gap-0.5 rounded-2xl px-2 py-1 text-[11px] font-medium",
+                  "relative flex min-w-[64px] flex-col items-center gap-0.5 rounded-2xl px-2 py-1 text-[11px] font-medium",
                   on ? "text-accent" : "text-ink-3"
                 )}
               >
+                {l.href === "/friends" && social > 0 && <Badge n={social} className="right-2.5 top-0" />}
                 <l.icon />
                 {l.label}
               </Link>
@@ -94,6 +107,20 @@ export function Nav() {
         </nav>
       )}
     </>
+  );
+}
+
+function Badge({ n, className }: { n: number; className?: string }) {
+  return (
+    <span
+      className={clsx(
+        "absolute flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[11px] font-semibold leading-none text-white",
+        className
+      )}
+      aria-label={`${n} new`}
+    >
+      {n > 9 ? "9+" : n}
+    </span>
   );
 }
 

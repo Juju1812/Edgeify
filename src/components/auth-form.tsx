@@ -8,6 +8,7 @@ import { useSession } from "@/lib/client/session";
 import type { MeProfile } from "@/lib/shared/types";
 import { Button, Card, Input, Notice } from "./ui";
 import { Logo } from "./nav";
+import { RecoveryCodeCard } from "./recovery-code";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -19,21 +20,29 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [adult, setAdult] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState<{ code: string; me: MeProfile } | null>(null);
+  // Where to go once signed in. New accounts head to their first scan.
+  const [dest, setDest] = useState(next);
 
   useEffect(() => {
-    if (me) router.replace(next);
-  }, [me, next, router]);
+    if (me && !recovery) router.replace(dest);
+  }, [me, dest, router, recovery]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const r = await api<{ me: MeProfile }>(`/api/auth/${mode}`, {
+      const r = await api<{ me: MeProfile; recoveryCode?: string }>(`/api/auth/${mode}`, {
         body: mode === "signup" ? { username, password, isOver18: adult } : { username, password }
       });
+      if (r.recoveryCode) {
+        // Show the code before letting them in; session is already active.
+        setDest(next === "/" ? "/scan" : next);
+        setRecovery({ code: r.recoveryCode, me: r.me });
+        return;
+      }
       setMe(r.me, true);
-      router.replace(mode === "signup" && next === "/" ? "/scan" : next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't reach Edgify. Check your connection.");
     } finally {
@@ -42,6 +51,25 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   }
 
   const signup = mode === "signup";
+
+  if (recovery) {
+    return (
+      <main className="page flex min-h-[calc(100vh-64px)] items-start justify-center md:items-center">
+        <Card className="w-full max-w-[420px] p-7 sm:p-9">
+          <RecoveryCodeCard
+            code={recovery.code}
+            username={recovery.me.username}
+            continueLabel="Get my score"
+            onContinue={() => {
+              setMe(recovery.me, true);
+              setRecovery(null); // the effect above navigates to `dest`
+            }}
+          />
+        </Card>
+      </main>
+    );
+  }
+
   return (
     <main className="page flex min-h-[calc(100vh-64px)] items-start justify-center md:items-center">
       <Card className="w-full max-w-[420px] p-7 sm:p-9">
@@ -93,6 +121,11 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           <Button type="submit" size="lg" className="mt-2 w-full" loading={busy} disabled={signup && !adult}>
             {signup ? "Create account" : "Sign in"}
           </Button>
+          {!signup && (
+            <Link href="/forgot" className="mt-1 self-center text-[14px] text-accent-ink hover:underline">
+              Forgot password?
+            </Link>
+          )}
         </form>
         <p className="mt-6 text-center text-[14px] text-ink-3">
           {signup ? "Already have an account? " : "New to Edgify? "}

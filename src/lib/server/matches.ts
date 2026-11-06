@@ -213,6 +213,14 @@ export async function claimAttempt(id: string, me: string) {
   });
 }
 
+/** A player reported their opponent mid-match: call it off with no ELO change. */
+export async function cancelForReport(id: string, reporter: string) {
+  return withMatch(id, async (m) => {
+    if (!isPlayer(m, reporter)) throw new HttpError(403, "not_your_match");
+    if (m.state === "connecting" || m.state === "live") await cancel(m);
+  });
+}
+
 export async function leaveMatch(id: string, me: string) {
   return withMatch(id, async (m) => {
     if (!isPlayer(m, me)) throw new HttpError(403, "not_your_match");

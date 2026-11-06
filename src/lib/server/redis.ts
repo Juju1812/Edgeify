@@ -54,5 +54,10 @@ export const K = {
   matchLock: (id: string) => `e2:mlock:${id}`,
   signal: (id: string, kind: "offer" | "answer") => `e2:sig:${id}:${kind}`,
   room: (code: string) => `e2:room:${code.toUpperCase()}`,
-  tourney: (code: string) => `e2:tourney:${code.toUpperCase()}`
+  tourney: (code: string) => `e2:tourney:${code.toUpperCase()}`,
+
+  blocks: (u: string) => `e2:blocks:${lc(u)}`,
+  reports: "e2:reports",
+  reportedBy: (u: string) => `e2:reportedby:${lc(u)}`,
+  suspended: (u: string) => `e2:suspended:${lc(u)}`
 };

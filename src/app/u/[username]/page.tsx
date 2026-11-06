@@ -8,9 +8,10 @@ import { useSession } from "@/lib/client/session";
 import { Avatar, Button, ButtonLink, Card, Empty, Flag, Notice } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 import { challengeFriend } from "@/components/social/helpers";
+import { ReportSheet } from "@/components/report-sheet";
 import type { PublicProfile } from "@/lib/shared/types";
 
-type Relation = "self" | "friends" | "outgoing" | "incoming" | "none";
+type Relation = "self" | "friends" | "outgoing" | "incoming" | "none" | "blocked";
 
 export default function ProfilePage({ params }: { params: { username: string } }) {
   const target = decodeURIComponent(params.username);
@@ -22,6 +23,22 @@ export default function ProfilePage({ params }: { params: { username: string } }
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  async function setBlocked(blocked: boolean) {
+    if (requireSignIn() || !user) return;
+    if (blocked && !window.confirm(`Block ${user.username}? You won't be matched or able to message each other.`)) return;
+    setBusy(blocked ? "block" : "unblock");
+    setError(null);
+    try {
+      await api("/api/blocks", { body: { action: blocked ? "block" : "unblock", username: user.username } });
+      setRelation(blocked ? "blocked" : "none");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -124,8 +141,32 @@ export default function ProfilePage({ params }: { params: { username: string } }
           )}
 
           <div className="mt-6 w-full">
-            <Actions relation={relation} busy={busy} username={user.username} onFriend={friend} onChallenge={challenge} />
+            {relation === "blocked" ? (
+              <Button variant="plain" className="w-full" loading={busy === "unblock"} onClick={() => setBlocked(false)}>
+                Blocked · Unblock
+              </Button>
+            ) : (
+              <Actions relation={relation} busy={busy} username={user.username} onFriend={friend} onChallenge={challenge} />
+            )}
           </div>
+          {me && relation !== "self" && (
+            <div className="mt-4 flex gap-5 text-[13px] text-ink-4">
+              {relation !== "blocked" && (
+                <button className="hover:text-bad" onClick={() => setBlocked(true)} disabled={busy === "block"}>
+                  Block
+                </button>
+              )}
+              <button className="hover:text-bad" onClick={() => setReportOpen(true)}>
+                Report
+              </button>
+            </div>
+          )}
+          <ReportSheet
+            open={reportOpen}
+            username={user.username}
+            onClose={() => setReportOpen(false)}
+            onDone={({ blocked }) => blocked && setRelation("blocked")}
+          />
           {error && (
             <div className="mt-4 w-full">
               <Notice tone="error">{error}</Notice>

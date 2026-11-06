@@ -25,7 +25,21 @@ export async function readDms(me: string, other: string, after = 0): Promise<Dm[
   return after ? msgs.filter((m) => m.at > after) : msgs;
 }
 
-export type Conversation = { with: string; lastAt: number; last: Dm | null; unread: boolean };
+/** Cheap unread count: conversations whose last activity is newer than my read mark. */
+export async function unreadCount(me: string): Promise<number> {
+  const items = (await redis().zrange(K.dmIndex(me), 0, 49, { rev: true, withScores: true })) as (string | number)[];
+  if (!items.length) return 0;
+  const others: string[] = [];
+  const lastAts: number[] = [];
+  for (let i = 0; i < items.length; i += 2) {
+    others.push(String(items[i]));
+    lastAts.push(Number(items[i + 1]));
+  }
+  const reads = await redis().mget<(number | string | null)[]>(...others.map((o) => K.dmRead(me, o)));
+  return lastAts.filter((at, i) => Number(reads[i] || 0) < at).length;
+}
+
+export type Conversation ={ with: string; lastAt: number; last: Dm | null; unread: boolean };
 
 export async function conversations(me: string): Promise<Conversation[]> {
   const items = (await redis().zrange(K.dmIndex(me), 0, 49, { rev: true, withScores: true })) as (string | number)[];

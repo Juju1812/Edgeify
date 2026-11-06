@@ -2,6 +2,7 @@ import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { currentUser, requireUser } from "@/lib/server/auth";
 import { getProfile, saveProfile, toMe } from "@/lib/server/profile";
 import { redis, K } from "@/lib/server/redis";
+import { unreadCount } from "@/lib/server/dms";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +10,15 @@ export const dynamic = "force-dynamic";
 export const GET = handle(async () => {
   const u = await currentUser();
   if (!u) return json({ me: null });
+  // Session for an account that no longer exists → treat as signed out.
+  const p = await getProfile(u).catch((e) => {
+    if (e instanceof HttpError && e.status === 404) return null;
+    throw e;
+  });
+  if (!p) return json({ me: null });
   await redis().set(K.online(u), "1", { ex: 75 });
-  return json({ me: toMe(await getProfile(u)) });
+  const [unread, requests] = await Promise.all([unreadCount(u), redis().scard(K.friendReqIn(u))]);
+  return json({ me: toMe(p), badges: { unread, requests } });
 });
 
 /** PATCH /api/me — the only fields a user may edit themselves. */

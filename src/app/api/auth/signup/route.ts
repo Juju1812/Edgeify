@@ -4,6 +4,7 @@ import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { isValidPassword, isValidUsername, startSession } from "@/lib/server/auth";
 import { getProfile, toMe } from "@/lib/server/profile";
 import { rateLimit } from "@/lib/server/ratelimit";
+import { rotateRecoveryCode } from "@/lib/server/recovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export const POST = handle(async (req: Request) => {
   if (!claimed) throw new HttpError(409, "username_taken", "That username is taken.");
   await redis().hset(K.user(username), { passwordHash, createdAt: String(Date.now()) });
 
+  const recoveryCode = await rotateRecoveryCode(username);
   await startSession(username);
-  return json({ me: toMe(await getProfile(username)) });
+  return json({ me: toMe(await getProfile(username)), recoveryCode });
 });

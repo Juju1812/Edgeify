@@ -3,6 +3,7 @@ import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import { activeMatchOf, createMatch } from "./matches";
 import { getProfile } from "./profile";
+import { assertNotSuspended, blockedBy } from "./safety";
 
 type Entry = { username: string; elo: number; joinedAt: number };
 
@@ -33,8 +34,10 @@ export async function pollQueue(me: string): Promise<{ matchId: string | null; w
     return { matchId: existing, waitingSince: Date.now() };
   }
 
+  await assertNotSuspended(me);
   const p = await getProfile(me);
   if (!p.score) throw new HttpError(409, "needs_scan", "Scan your face before playing ranked.");
+  const myBlocks = new Set(await blockedBy(me));
 
   const prev = parse(await redis().get(K.queueEntry(me)));
   const entry: Entry = { username: p.username, elo: p.elo, joinedAt: prev?.joinedAt ?? Date.now() };
@@ -44,7 +47,8 @@ export async function pollQueue(me: string): Promise<{ matchId: string | null; w
   const now = Date.now();
   const candidates = await redis().zrange<string[]>(K.queue, 0, 24);
   for (const c of candidates) {
-    if (c === lc(me)) continue;
+    if (c === lc(me) || myBlocks.has(c)) continue;
+    if (await redis().sismember(K.blocks(c), lc(me))) continue;
     const ce = parse(await redis().get(K.queueEntry(c)));
     if (!ce) {
       await redis().zrem(K.queue, c); // stale

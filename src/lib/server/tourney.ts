@@ -3,6 +3,7 @@ import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import { roomCode, withLock } from "./lock";
 import { activeMatchOf, createMatch } from "./matches";
+import { assertNotSuspended, eitherBlocked } from "./safety";
 
 export const TOURNEY_SIZE = 4;
 
@@ -61,6 +62,10 @@ export async function tourneyAction(code: string, me: string, action: string): P
       if (has(t, me)) return t;
       if (t.state !== "lobby") throw new HttpError(409, "started", "That tournament already started.");
       if (t.players.length >= TOURNEY_SIZE) throw new HttpError(409, "full", "That tournament is full.");
+      await assertNotSuspended(me);
+      for (const p of t.players) {
+        if (await eitherBlocked(p, me)) throw new HttpError(403, "blocked", "You can't join this tournament.");
+      }
       t.players.push(me);
     } else if (action === "leave") {
       if (t.state !== "lobby") throw new HttpError(409, "started", "You can't leave once it's started.");

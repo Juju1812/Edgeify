@@ -21,7 +21,8 @@ const UNUSABLE_REASONS = [
   "too_dark_or_blurry",
   "bad_angle",
   "not_a_live_photo",
-  "appears_under_18"
+  "appears_under_18",
+  "explicit_content"
 ] as const;
 export type UnusableReason = (typeof UNUSABLE_REASONS)[number];
 
@@ -71,6 +72,7 @@ Set usable=false (and overall/traits to 0) if any of these apply, choosing the m
 - bad_angle: face turned so far that both eyes and the jaw are not clearly visible
 - not_a_live_photo: it is clearly a photo of a screen/printout, a drawing, or an AI render
 - appears_under_18: the person plausibly looks under 18. When in doubt, refuse — never rate minors.
+- explicit_content: visible genitals, exposed female nipples, sexual acts or sexual gestures, or an obscene gesture/object held up to the camera. (A shirtless man or a low neckline alone is NOT explicit.) This check matters most — these frames come from live video calls with strangers.
 Otherwise usable=true and unusable_reason="none".
 
 ## Scale (overall and every trait, integers 0-100)

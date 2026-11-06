@@ -23,7 +23,8 @@ class Client {
   async call(path: string, method = "GET", body?: unknown) {
     const r = await fetch(base + path, {
       method,
-      headers: { "Content-Type": "application/json", Cookie: this.cookie },
+      // Distinct fake client IP per test client so the per-IP signup limit doesn't trip.
+      headers: { "Content-Type": "application/json", Cookie: this.cookie, "x-forwarded-for": `10.9.${tag.length}.${this.name.length}${Math.floor(Math.random() * 9)}` },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     const set = r.headers.get("set-cookie");
@@ -123,6 +124,55 @@ async function main() {
   const t = (await a.call("/api/tourney", "POST")).data.tourney;
   ok((await b.call(`/api/tourney/${t.code}`, "POST", { action: "join" })).data.tourney.players.length === 2, "join tourney");
   ok((await a.call(`/api/tourney/${t.code}`, "POST", { action: "start" })).status === 409, "can't start with 2");
+
+  console.log("badges + avatars");
+  await a.call("/api/messages/" + b.name, "POST", { text: "gg" });
+  ok((await b.call("/api/me")).data.badges?.unread === 1, "unread badge counts new DM");
+  const face = await fetch(`${base}/api/face/${a.name}`);
+  ok(face.status === 200 && face.headers.get("content-type") === "image/svg+xml", "no-photo avatar returns initials SVG, not 404");
+
+  console.log("report during match cancels it");
+  const room2 = (await a.call("/api/rooms", "POST")).data.room;
+  const m2 = (await b.call(`/api/rooms/${room2.code}`, "POST")).data.room.matchId;
+  const rep = await a.call("/api/report", "POST", { username: b.name, reason: "harassment", matchId: m2 });
+  ok(rep.status === 200 && rep.data.matchCancelled === true, "report filed + match cancelled");
+  ok((await b.call(`/api/match/${m2}`)).data.match.state === "cancelled", "opponent sees cancelled");
+
+  console.log("blocking");
+  ok((await a.call("/api/blocks", "POST", { action: "block", username: b.name })).status === 200, "block");
+  ok((await b.call("/api/messages/" + a.name, "POST", { text: "hey" })).status === 403, "blocked → DM refused (friendship removed)");
+  ok((await b.call("/api/friends", "POST", { action: "add", username: a.name })).status === 403, "blocked → friend request refused");
+  ok((await a.call(`/api/users/${b.name}`)).data.relation === "blocked", "profile shows blocked");
+  const room3 = (await a.call("/api/rooms", "POST")).data.room;
+  ok((await b.call(`/api/rooms/${room3.code}`, "POST")).status === 403, "blocked → can't join room");
+  let paired = false;
+  for (let i = 0; i < 4 && !paired; i++) {
+    const ra = await a.call("/api/match/queue", "POST");
+    const rb = await b.call("/api/match/queue", "POST");
+    paired = !!(ra.data.matchId || rb.data.matchId);
+    await sleep(500);
+  }
+  ok(!paired, "blocked players never paired in ranked");
+  await a.call("/api/match/queue", "DELETE");
+  await b.call("/api/match/queue", "DELETE");
+  ok((await a.call("/api/blocks")).data.blocked?.length === 1, "block list");
+  await a.call("/api/blocks", "POST", { action: "unblock", username: b.name });
+
+  console.log("recovery codes");
+  const c = new Client(`zzt_${tag}_c`);
+  users.push(c.name);
+  const su = await c.call("/api/auth/signup", "POST", { username: c.name, password: "oldpass123", isOver18: true });
+  const code = su.data.recoveryCode as string;
+  ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code), `signup returns recovery code ${code}`);
+  const anon = new Client("anon");
+  ok((await anon.call("/api/auth/recover", "POST", { username: c.name, code: "AAAA-BBBB-CCCC-DDDD", password: "newpass123" })).status === 401, "wrong code rejected");
+  const rec = await anon.call("/api/auth/recover", "POST", { username: c.name, code: code.toLowerCase().replace(/-/g, " "), password: "newpass123" });
+  ok(rec.status === 200 && rec.data.recoveryCode && rec.data.recoveryCode !== code, "recover with code (case/format-insensitive) + new code issued");
+  ok((await anon.call("/api/me")).data.me?.username === c.name, "signed in after recovery");
+  ok((await new Client("x").call("/api/auth/login", "POST", { username: c.name, password: "oldpass123" })).status === 401, "old password dead");
+  ok((await new Client("x").call("/api/auth/login", "POST", { username: c.name, password: "newpass123" })).status === 200, "new password works");
+  ok((await new Client("y").call("/api/auth/recover", "POST", { username: c.name, code, password: "x123456" })).status === 401, "used code can't be reused");
+  ok((await c.call("/api/auth/recovery-code", "POST", { password: "wrong" })).status === 401, "new code needs correct password");
 }
 
 async function cleanup() {

@@ -3,6 +3,7 @@ import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import { roomCode, withLock } from "./lock";
 import { activeMatchOf, createMatch } from "./matches";
+import { assertNotSuspended, eitherBlocked } from "./safety";
 
 export type Room = { code: string; host: string; createdAt: number; matchId: string | null; guest: string | null };
 
@@ -35,6 +36,8 @@ export async function joinRoom(code: string, guest: string): Promise<Room> {
       if (room.guest?.toLowerCase() === guest.toLowerCase()) return room;
       throw new HttpError(409, "room_full", "Someone already joined that room.");
     }
+    await assertNotSuspended(guest);
+    if (await eitherBlocked(room.host, guest)) throw new HttpError(403, "blocked", "You can't join this room.");
     if (await activeMatchOf(room.host)) throw new HttpError(409, "host_busy", "The host is in another match.");
     if (await activeMatchOf(guest)) throw new HttpError(409, "you_busy", "Finish your current match first.");
     const m = await createMatch("room", room.host, guest);

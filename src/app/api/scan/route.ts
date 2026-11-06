@@ -4,6 +4,7 @@ import { addReading, getProfile, saveProfile, toMe } from "@/lib/server/profile"
 import { LIMITS, rateLimit } from "@/lib/server/ratelimit";
 import { parseFrames, scoreFramesOrExplain, UNUSABLE_MESSAGES } from "@/lib/server/scoring";
 import { redis, K } from "@/lib/server/redis";
+import { fileReport } from "@/lib/server/safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ export const POST = handle(async (req: Request) => {
   await rateLimit("scan", u, LIMITS.scansPerDay, 86400, `You've used today's ${LIMITS.scansPerDay} scans. Come back tomorrow.`);
 
   const result = await scoreFramesOrExplain(frames);
+  if (!result.ok && result.reason === "explicit_content") {
+    await fileReport({ target: u, by: "system", reason: "nudity", note: "AI flagged a solo scan", matchId: null, at: Date.now() });
+  }
   if (!result.ok) {
     return json({ ok: false, reason: result.reason, message: UNUSABLE_MESSAGES[result.reason] }, 422);
   }

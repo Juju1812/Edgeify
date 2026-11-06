@@ -7,6 +7,7 @@ import { api, ApiError } from "@/lib/client/api";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
 import type { MeProfile } from "@/lib/shared/types";
 import { Avatar, Button, ButtonLink, Card, Input, Notice, PageTitle, Spinner } from "@/components/ui";
+import { RecoveryCodeCard } from "@/components/recovery-code";
 
 const COUNTRIES: [string, string][] = [
   ["", "Not shown"], ["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"], ["AU", "Australia"],
@@ -112,6 +113,9 @@ export default function SettingsPage() {
           </div>
         </Card>
 
+        <RecoverySection username={me.username} />
+        <BlockedSection />
+
         <Card className="mt-5 p-2">
           <Link href="/scan" className="flex items-center justify-between rounded-2xl px-4 py-3.5 text-[16px] hover:bg-fill">
             Rescan your face <Chevron />
@@ -144,6 +148,127 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
         className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-[2px]"}`}
       />
     </button>
+  );
+}
+
+function RecoverySection({ username }: { username: string }) {
+  const [hasCode, setHasCode] = useState<boolean | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ hasCode: boolean }>("/api/auth/recovery-code")
+      .then((r) => setHasCode(r.hasCode))
+      .catch(() => setHasCode(null));
+  }, []);
+
+  async function generate(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ recoveryCode: string }>("/api/auth/recovery-code", { body: { password } });
+      setCode(r.recoveryCode);
+      setHasCode(true);
+      setAsking(false);
+      setPassword("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't create a code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="mt-5 p-6">
+      {code ? (
+        <RecoveryCodeCard code={code} username={username} continueLabel="Done" onContinue={() => setCode(null)} />
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[15px] font-medium">Recovery code</p>
+              <p className="mt-0.5 text-[13px] text-ink-3">
+                {hasCode === false
+                  ? "You don't have one yet. Without it, a forgotten password means a lost account."
+                  : "Lets you reset your password if you forget it. Making a new one replaces the old one."}
+              </p>
+            </div>
+            {!asking && (
+              <Button size="sm" variant={hasCode === false ? "primary" : "plain"} onClick={() => setAsking(true)}>
+                {hasCode === false ? "Create" : "New code"}
+              </Button>
+            )}
+          </div>
+          {asking && (
+            <form onSubmit={generate} className="mt-4 flex flex-col gap-3">
+              <Input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Confirm your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoFocus
+              />
+              {error && <Notice tone="error">{error}</Notice>}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="plain" size="sm" onClick={() => setAsking(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm" loading={busy}>
+                  Show code
+                </Button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function BlockedSection() {
+  const [blocked, setBlocked] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ blocked: string[] }>("/api/blocks")
+      .then((r) => setBlocked(r.blocked))
+      .catch(() => setBlocked([]));
+  }, []);
+
+  if (!blocked || blocked.length === 0) return null;
+
+  async function unblock(u: string) {
+    setBusy(u);
+    try {
+      await api("/api/blocks", { body: { action: "unblock", username: u } });
+      setBlocked((b) => (b || []).filter((x) => x !== u));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="mt-5 p-6">
+      <p className="text-[15px] font-medium">Blocked players</p>
+      <p className="mt-0.5 text-[13px] text-ink-3">You won&apos;t be matched with or messaged by these players.</p>
+      <ul className="mt-3">
+        {blocked.map((u) => (
+          <li key={u} className="flex items-center gap-3 border-b border-line py-2.5 last:border-0">
+            <Avatar username={u} hasFace size={34} />
+            <span className="flex-1 truncate text-[15px]">{u}</span>
+            <Button size="sm" variant="plain" loading={busy === u} onClick={() => unblock(u)}>
+              Unblock
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

@@ -11,6 +11,15 @@ import { Button, ButtonLink, Spinner } from "@/components/ui";
 import { CenteredSpinner, ErrorCard, useRequireSignIn } from "@/components/play/common";
 import { VideoTile } from "@/components/play/video-tile";
 import { MatchResult } from "@/components/play/match-result";
+import { ReportSheet } from "@/components/report-sheet";
+
+function FlagIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 21V4.5M5 4.5h11l-2 4 2 4H5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 type Phase = "idle" | "capturing" | "scoring" | "retry" | "scored" | "out";
 
@@ -37,6 +46,8 @@ export default function MatchPage({ params }: { params: { id: string } }) {
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
   const readySent = useRef(false);
   const [leaving, setLeaving] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reported, setReported] = useState(false);
 
   const signedIn = !!me;
   const finished = match?.state === "done" || match?.state === "cancelled";
@@ -240,10 +251,34 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     );
   }
 
+  const reportSheet = (
+    <ReportSheet
+      open={reportOpen}
+      username={match.opponent}
+      matchId={match.state === "done" || match.state === "cancelled" ? undefined : match.id}
+      onClose={() => setReportOpen(false)}
+      onDone={() => {
+        setReported(true);
+        setRemote(null);
+        rtcRef.current?.close();
+      }}
+    />
+  );
+
   if (match.state === "done") {
     return (
       <main className="page max-w-[860px]">
         <MatchResult match={match} />
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setReportOpen(true)}
+            className="text-[14px] text-ink-4 hover:text-bad"
+            disabled={reported}
+          >
+            {reported ? `${match.opponent} reported` : `Report ${match.opponent}`}
+          </button>
+        </div>
+        {reportSheet}
       </main>
     );
   }
@@ -252,11 +287,13 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     return (
       <main className="page">
         <ErrorCard
-          title="Match called off"
+          title={reported ? "Match ended" : "Match called off"}
           body={
-            match.ready.length < 2
-              ? `${match.opponent} didn't connect in time. No ELO changed.`
-              : "Neither face could be scored in time. No ELO changed."
+            reported
+              ? `Thanks for reporting ${match.opponent}. No ELO changed.`
+              : match.ready.length < 2
+                ? `${match.opponent} didn't connect in time. No ELO changed.`
+                : "Neither face could be scored in time. No ELO changed."
           }
           action={
             <>
@@ -277,7 +314,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
   const oppInfo = match.players.find((p) => p.username === match.opponent);
   const oppReady = match.ready.includes(match.opponent.toLowerCase());
   const oppScored = !!match.scores[match.opponent];
-  const remoteLive = rtcState === "connected" && !!remote;
+  const remoteLive = rtcState === "connected" && !!remote && !reported;
 
   const cameraProblem = cam.state === "denied" || cam.state === "unavailable";
 
@@ -301,11 +338,16 @@ export default function MatchPage({ params }: { params: { id: string } }) {
             <MicIcon off={!micOn} />
             <span className="hidden sm:inline">{micOn ? "Mic on" : "Mic off"}</span>
           </Button>
+          <Button variant="plain" size="sm" onClick={() => setReportOpen(true)} aria-label={`Report ${match.opponent}`}>
+            <FlagIcon />
+            <span className="hidden sm:inline">Report</span>
+          </Button>
           <Button variant="danger" size="sm" onClick={leave} loading={leaving}>
             Leave
           </Button>
         </div>
       </div>
+      {reportSheet}
 
       <StatusBar
         state={match.state}
