@@ -9,7 +9,7 @@ type Variant = "primary" | "secondary" | "plain" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const base =
-  "inline-flex select-none items-center justify-center gap-2 rounded-full font-medium transition-[background,transform,box-shadow,color] duration-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45";
+  "inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-[background,transform,box-shadow,color] duration-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45";
 const variants: Record<Variant, string> = {
   primary: "bg-accent text-white hover:bg-accent-hover",
   secondary: "bg-accent-soft text-accent-ink hover:bg-[#dcebfb]",

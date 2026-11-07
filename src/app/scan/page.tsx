@@ -4,9 +4,11 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
-import { captureBurst, grabThumb, useCamera } from "@/lib/client/camera";
+import { captureBurst, grabMirroredFrame, grabThumb, useCamera } from "@/lib/client/camera";
+import { useFaceTracker, type Pt } from "@/lib/client/face-mesh";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
-import type { MeProfile, Traits } from "@/lib/shared/types";
+import { DEFAULT_OVERLAY_COLOR, type MeProfile, type Traits } from "@/lib/shared/types";
+import { LiveFaceDots, ScanOverlay } from "@/components/face-overlay";
 import { Button, ButtonLink, Card, Notice, Spinner } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 
@@ -19,17 +21,22 @@ type Reading = {
   confidence: "low" | "medium" | "high";
 };
 
+type Snapshot = { url: string; width: number; height: number; points: Pt[] | null };
+
 type Phase =
   | { k: "intro" }
   | { k: "countdown"; n: number }
   | { k: "analyzing" }
-  | { k: "result"; reading: Reading; me: MeProfile }
+  | { k: "result"; reading: Reading; me: MeProfile; snap: Snapshot | null }
   | { k: "error"; message: string; retry: boolean };
 
 export default function ScanPage() {
   const { me, setMe } = useRequireAuth();
   const cam = useCamera();
   const [phase, setPhase] = useState<Phase>({ k: "intro" });
+  const camLive = cam.state === "live";
+  const tracker = useFaceTracker(cam.videoRef, camLive);
+  const color = me?.overlayColor || DEFAULT_OVERLAY_COLOR;
 
   async function run() {
     const stream = await cam.start();
@@ -39,13 +46,20 @@ export default function ScanPage() {
       setPhase({ k: "countdown", n });
       await new Promise((r) => setTimeout(r, 800));
     }
+    // If the tracker is running and sees no face, don't spend a scan on it.
+    if (tracker.ready === "ready" && !tracker.landmarks.current) {
+      setPhase({ k: "error", message: "We can't see your face. Center yourself in the frame and try again.", retry: true });
+      return;
+    }
+    const pts = tracker.landmarks.current ? [...tracker.landmarks.current] : null;
+    const still = grabMirroredFrame(video);
     const frames = await captureBurst(video, 3, 500);
     const thumb = grabThumb(video);
     setPhase({ k: "analyzing" });
     try {
       const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb } });
       setMe(r.me, true);
-      setPhase({ k: "result", reading: r.reading, me: r.me });
+      setPhase({ k: "result", reading: r.reading, me: r.me, snap: still ? { ...still, points: pts } : null });
       cam.stop();
     } catch (e) {
       const err = e instanceof ApiError ? e : null;
@@ -65,9 +79,13 @@ export default function ScanPage() {
     );
   }
 
-  if (phase.k === "result") return <Result reading={phase.reading} me={phase.me} onAgain={() => setPhase({ k: "intro" })} />;
+  if (phase.k === "result") {
+    return (
+      <Result reading={phase.reading} me={phase.me} snap={phase.snap} color={color} onAgain={() => setPhase({ k: "intro" })} />
+    );
+  }
 
-  const camLive = cam.state === "live";
+  const tracking = camLive && tracker.faceFound;
   return (
     <main className="page">
       <div className="mx-auto max-w-[720px]">
@@ -89,10 +107,16 @@ export default function ScanPage() {
                 camLive ? "opacity-100" : "opacity-0"
               )}
             />
-            {/* Face guide */}
-            {camLive && (
+            {/* Live face dots once tracking; an oval guide until a face is found */}
+            {camLive && <LiveFaceDots landmarks={tracker.landmarks} videoRef={cam.videoRef} color={color} />}
+            {camLive && !tracking && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="h-[72%] w-auto aspect-[3/4] rounded-[50%] border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
+              </div>
+            )}
+            {camLive && tracker.ready === "ready" && (
+              <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/45 px-3.5 py-1.5 text-[13px] font-medium text-white backdrop-blur">
+                {tracking ? "Face locked" : "Looking for your face…"}
               </div>
             )}
             {!camLive && (
@@ -160,16 +184,51 @@ export default function ScanPage() {
   );
 }
 
-function Result({ reading, me, onAgain }: { reading: Reading; me: MeProfile; onAgain: () => void }) {
+function Result({
+  reading,
+  me,
+  snap,
+  color,
+  onAgain
+}: {
+  reading: Reading;
+  me: MeProfile;
+  snap: Snapshot | null;
+  color: string;
+  onAgain: () => void;
+}) {
   const avg = me.score;
   const multiple = (avg?.readings ?? 1) > 1;
+  // Landscape webcam shots get the full card width; portrait/square sit beside the text.
+  const wide = !!snap && snap.width / snap.height > 1.2;
   return (
     <main className="page">
-      <div className="mx-auto max-w-[920px]">
-        <Card className="animate-fade-up p-7 md:p-10">
-          <div className="flex flex-col items-center gap-8 md:flex-row md:items-center md:gap-12">
-            <ScoreRing value={reading.overall} size={224} />
-            <div className="text-center md:text-left">
+      <div className="mx-auto max-w-[1000px]">
+        <Card className="animate-fade-up p-3 md:p-4">
+          <div className={clsx("flex flex-col gap-6", !wide && "md:flex-row md:items-center md:gap-10")}>
+            {snap ? (
+              <div className={clsx("w-full", !wide && "md:w-[58%]")}>
+                <ScanOverlay
+                  image={snap.url}
+                  width={snap.width}
+                  height={snap.height}
+                  points={snap.points}
+                  traits={reading.traits}
+                  overall={reading.overall}
+                  color={color}
+                />
+              </div>
+            ) : (
+              <div className="flex justify-center pt-6 md:pl-6 md:pt-0">
+                <ScoreRing value={reading.overall} size={224} />
+              </div>
+            )}
+            <div
+              className={clsx(
+                "px-4 pb-5 text-center",
+                wide ? "md:px-6 md:pb-6" : "md:flex-1 md:px-0 md:pb-0 md:pr-6 md:text-left"
+              )}
+            >
               <p className="eyebrow">{tierLabel(reading.overall)}</p>
               <h1 className="display mt-2 text-[30px] leading-[1.1] md:text-[38px]">{reading.headline}</h1>
               {multiple && avg && (
@@ -181,7 +240,7 @@ function Result({ reading, me, onAgain }: { reading: Reading; me: MeProfile; onA
               {reading.confidence === "low" && (
                 <p className="mt-3 text-[14px] text-warn">Low-confidence read — better lighting will give a truer score.</p>
               )}
-              <div className="mt-6 flex flex-wrap justify-center gap-3 md:justify-start">
+              <div className={clsx("mt-6 flex flex-wrap justify-center gap-3", !wide && "md:justify-start")}>
                 <ButtonLink href="/play" size="lg">
                   Play 1v1
                 </ButtonLink>

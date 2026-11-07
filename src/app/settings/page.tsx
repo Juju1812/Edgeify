@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/client/api";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
-import type { MeProfile } from "@/lib/shared/types";
+import { DEFAULT_OVERLAY_COLOR, type MeProfile } from "@/lib/shared/types";
 import { Avatar, Button, ButtonLink, Card, Input, Notice, PageTitle, Spinner } from "@/components/ui";
 import { RecoveryCodeCard } from "@/components/recovery-code";
 
@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [bio, setBio] = useState("");
   const [country, setCountry] = useState("");
   const [showOnBoard, setShowOnBoard] = useState(true);
+  const [overlayColor, setOverlayColor] = useState(DEFAULT_OVERLAY_COLOR);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: "good" | "error"; text: string } | null>(null);
 
@@ -34,6 +35,7 @@ export default function SettingsPage() {
     setBio(me.bio);
     setCountry(me.country);
     setShowOnBoard(me.showOnBoard);
+    setOverlayColor(me.overlayColor || DEFAULT_OVERLAY_COLOR);
   }, [me]);
 
   if (!me) {
@@ -48,7 +50,7 @@ export default function SettingsPage() {
     setSaving(true);
     setMsg(null);
     try {
-      const r = await api<{ me: MeProfile }>("/api/me", { method: "PATCH", body: { bio, country, showOnBoard } });
+      const r = await api<{ me: MeProfile }>("/api/me", { method: "PATCH", body: { bio, country, showOnBoard, overlayColor } });
       setMe(r.me);
       setMsg({ tone: "good", text: "Saved." });
     } catch (e) {
@@ -58,7 +60,11 @@ export default function SettingsPage() {
     }
   }
 
-  const dirty = bio !== me.bio || country !== me.country || showOnBoard !== me.showOnBoard;
+  const dirty =
+    bio !== me.bio ||
+    country !== me.country ||
+    showOnBoard !== me.showOnBoard ||
+    overlayColor !== (me.overlayColor || DEFAULT_OVERLAY_COLOR);
 
   return (
     <main className="page">
@@ -105,6 +111,7 @@ export default function SettingsPage() {
             </span>
             <Toggle on={showOnBoard} onChange={setShowOnBoard} />
           </label>
+          <ColorSetting value={overlayColor} onChange={setOverlayColor} />
           {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
           <div className="flex justify-end">
             <Button onClick={save} loading={saving} disabled={!dirty}>
@@ -145,9 +152,87 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
       className={`relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors ${on ? "bg-[#34c759]" : "bg-fill-2"}`}
     >
       <span
-        className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-[2px]"}`}
+        className={`absolute left-0 top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-[2px]"}`}
       />
     </button>
+  );
+}
+
+const SWATCHES: [string, string][] = [
+  ["#ffffff", "White"],
+  ["#0a84ff", "Blue"],
+  ["#64d2ff", "Cyan"],
+  ["#30d158", "Green"],
+  ["#ffd60a", "Yellow"],
+  ["#ff9f0a", "Orange"],
+  ["#ff375f", "Pink"],
+  ["#bf5af2", "Purple"]
+];
+
+function ColorSetting({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const custom = !SWATCHES.some(([c]) => c === value.toLowerCase());
+  return (
+    <div className="flex flex-col gap-3">
+      <span>
+        <span className="block text-[15px] font-medium">Scan overlay colour</span>
+        <span className="block text-[13px] text-ink-3">The dots and score callouts drawn on your face when you scan.</span>
+      </span>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {SWATCHES.map(([c, name]) => {
+          const on = value.toLowerCase() === c;
+          return (
+            <button
+              key={c}
+              type="button"
+              aria-label={name}
+              aria-pressed={on}
+              title={name}
+              onClick={() => onChange(c)}
+              className={`h-9 w-9 rounded-full border border-black/10 transition-transform hover:scale-110 ${on ? "ring-2 ring-accent ring-offset-2" : ""}`}
+              style={{ background: c }}
+            />
+          );
+        })}
+        <label
+          title="Custom colour"
+          className={`relative flex h-9 w-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-black/10 transition-transform hover:scale-110 ${custom ? "ring-2 ring-accent ring-offset-2" : ""}`}
+          style={{
+            background: custom ? value : "conic-gradient(#ff375f, #ffd60a, #30d158, #64d2ff, #0a84ff, #bf5af2, #ff375f)"
+          }}
+        >
+          <span className="sr-only">Custom colour</span>
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
+      </div>
+      <OverlayPreview color={value} />
+    </div>
+  );
+}
+
+/** Tiny live preview of the overlay style on a dark tile. */
+function OverlayPreview({ color }: { color: string }) {
+  return (
+    <svg viewBox="0 0 240 90" className="h-[90px] w-full max-w-[320px] rounded-2xl bg-[#2c2c2e]" aria-hidden>
+      {[
+        [40, 30], [52, 22], [64, 20], [76, 22], [88, 30], [46, 48], [82, 48], [64, 58], [56, 70], [72, 70]
+      ].map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={2.6} fill={color} />
+      ))}
+      <polyline points="88,30 118,26 132,26" fill="none" stroke={color} strokeWidth={1.4} />
+      <circle cx={88} cy={30} r={3.6} fill={color} />
+      <rect x={132} y={14} width={92} height={24} rx={12} fill="rgba(0,0,0,0.5)" stroke={color} strokeOpacity={0.55} />
+      <text x={142} y={26} dominantBaseline="central" fontSize={11} fill="#fff" fillOpacity={0.85} fontFamily="-apple-system, Inter, sans-serif">
+        Eyes
+      </text>
+      <text x={214} y={26} dominantBaseline="central" textAnchor="end" fontSize={13} fontWeight={700} fill={color} fontFamily="-apple-system, Inter, sans-serif">
+        80
+      </text>
+    </svg>
   );
 }
 

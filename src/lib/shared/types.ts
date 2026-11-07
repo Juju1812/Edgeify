@@ -57,7 +57,11 @@ export type MeProfile = {
   bio: string;
   country: string;
   showOnBoard: boolean;
+  /** Colour of the face-scan dots and callouts (hex). */
+  overlayColor: string;
 };
+
+export const DEFAULT_OVERLAY_COLOR = "#ffffff";
 
 export type PublicProfile = Pick<
   MeProfile,

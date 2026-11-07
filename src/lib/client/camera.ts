@@ -77,6 +77,23 @@ export function grabFrame(video: HTMLVideoElement, max = 768, quality = 0.85): s
   return c.toDataURL("image/jpeg", quality);
 }
 
+/** Full frame, mirrored like the preview — the backdrop for the result overlay. */
+export function grabMirroredFrame(video: HTMLVideoElement, max = 900): { url: string; width: number; height: number } | null {
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if (!w || !h) return null;
+  const scale = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.translate(c.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, c.width, c.height);
+  return { url: c.toDataURL("image/jpeg", 0.88), width: c.width, height: c.height };
+}
+
 /** Square, centred thumbnail for the public avatar. */
 export function grabThumb(video: HTMLVideoElement, size = 320): string | null {
   const w = video.videoWidth;

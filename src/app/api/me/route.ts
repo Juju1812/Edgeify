@@ -24,7 +24,7 @@ export const GET = handle(async () => {
 /** PATCH /api/me — the only fields a user may edit themselves. */
 export const PATCH = handle(async (req: Request) => {
   const u = await requireUser();
-  const body = await readJson<{ bio?: unknown; country?: unknown; showOnBoard?: unknown }>(req);
+  const body = await readJson<{ bio?: unknown; country?: unknown; showOnBoard?: unknown; overlayColor?: unknown }>(req);
   const p = await getProfile(u);
 
   if (body.bio !== undefined) {
@@ -38,6 +38,12 @@ export const PATCH = handle(async (req: Request) => {
     p.country = body.country;
   }
   if (body.showOnBoard !== undefined) p.showOnBoard = body.showOnBoard === true;
+  if (body.overlayColor !== undefined) {
+    if (typeof body.overlayColor !== "string" || !/^#[0-9a-fA-F]{6}$/.test(body.overlayColor)) {
+      throw new HttpError(400, "bad_color", "Pick a valid colour.");
+    }
+    p.overlayColor = body.overlayColor.toLowerCase();
+  }
 
   await saveProfile(p);
   return json({ me: toMe(p) });

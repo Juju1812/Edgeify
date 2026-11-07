@@ -2,6 +2,7 @@ import "server-only";
 import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import {
+  DEFAULT_OVERLAY_COLOR,
   PLACEMENT_MATCHES,
   START_ELO,
   TRAIT_KEYS,
@@ -33,7 +34,8 @@ function blank(username: string): StoredProfile {
     hasFace: false,
     bio: "",
     country: "",
-    showOnBoard: true
+    showOnBoard: true,
+    overlayColor: DEFAULT_OVERLAY_COLOR
   };
 }
 
@@ -90,7 +92,8 @@ export async function syncLeaderboard(p: StoredProfile) {
 
 export function toMe(p: StoredProfile): MeProfile {
   const { readings: _r, ...me } = p;
-  return me;
+  // Profiles created before a field existed get its default.
+  return { ...me, overlayColor: me.overlayColor || DEFAULT_OVERLAY_COLOR };
 }
 
 export function toPublic(p: StoredProfile, rank: number | null, online: boolean): PublicProfile {

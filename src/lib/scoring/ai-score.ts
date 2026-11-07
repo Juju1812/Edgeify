@@ -71,7 +71,7 @@ Set usable=false (and overall/traits to 0) if any of these apply, choosing the m
 - too_dark_or_blurry: too dark, blown out or blurred to judge features
 - bad_angle: face turned so far that both eyes and the jaw are not clearly visible
 - not_a_live_photo: it is clearly a photo of a screen/printout, a drawing, or an AI render
-- appears_under_18: the person plausibly looks under 18. When in doubt, refuse — never rate minors.
+- appears_under_18: ONLY if the person obviously looks like a child or young teen (roughly 15 or younger). Every user has confirmed they are 18+, so give young-looking adults the benefit of the doubt — a baby face, small build or no facial hair is not a reason to refuse.
 - explicit_content: visible genitals, exposed female nipples, sexual acts or sexual gestures, or an obscene gesture/object held up to the camera. (A shirtless man or a low neckline alone is NOT explicit.) This check matters most — these frames come from live video calls with strangers.
 Otherwise usable=true and unusable_reason="none".
 
