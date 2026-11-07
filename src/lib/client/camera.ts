@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { averageRatios, measureFrame, type Ratios } from "@/lib/shared/ratios";
 
 export type CameraState = "idle" | "starting" | "live" | "denied" | "unavailable";
 
@@ -155,20 +156,30 @@ export function grabFaceCrop(video: HTMLVideoElement, pts: { x: number; y: numbe
   return c.toDataURL("image/jpeg", 0.9);
 }
 
-/** Capture `n` face crops spaced `gapMs` apart, using the live landmarks. */
+/**
+ * Capture `n` face crops spaced `gapMs` apart, using the live landmarks, and
+ * measure the facial ratios on each frame (median across near-frontal ones).
+ */
 export async function captureFaceBurst(
   video: HTMLVideoElement,
   getPoints: () => { x: number; y: number }[] | null,
   n = 5,
   gapMs = 280
-): Promise<string[]> {
-  const out: string[] = [];
+): Promise<{ frames: string[]; ratios: Ratios | null }> {
+  const frames: string[] = [];
+  const measured: { ratios: Ratios; yaw: number }[] = [];
   for (let i = 0; i < n; i++) {
-    const f = grabFaceCrop(video, getPoints());
-    if (f) out.push(f);
+    const pts = getPoints();
+    const f = grabFaceCrop(video, pts);
+    if (f) frames.push(f);
+    if (pts && video.videoWidth) {
+      // Landmarks are normalized; measure in true pixel proportions.
+      const m = measureFrame(pts.map((p) => ({ x: p.x * video.videoWidth, y: p.y * video.videoHeight })));
+      if (m) measured.push(m);
+    }
     if (i < n - 1) await new Promise((r) => setTimeout(r, gapMs));
   }
-  return out;
+  return { frames, ratios: averageRatios(measured)?.ratios ?? null };
 }
 
 /** Capture `n` frames spaced `gapMs` apart. */

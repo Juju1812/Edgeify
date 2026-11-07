@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
 import { TRAIT_KEYS, type TraitKey } from "../shared/types";
+import { formatIdeal, formatRatio, RATIO_SPECS, ratioReport, type RatioReport, type Ratios } from "../shared/ratios";
 
 /**
  * Server-side face scoring with Claude vision.
@@ -54,7 +55,37 @@ export type AiScore = {
   headline: string;
   strengths: string[];
   improvements: string[];
+  /** Measured ratios and how close they are to the ideals, when available. */
+  ratios: Ratios | null;
+  ratioScore: number | null;
 };
+
+/**
+ * How much measured ratios move the final overall directly (on top of the AI
+ * weighing them). A face that hits the ideals gains up to +RATIO_NUDGE_MAX,
+ * one far off them loses up to that much. Capped so a mismeasurement can't
+ * swing a score wildly.
+ */
+// Calibrated on real mesh measurements: typical faces land ~85-95 closeness,
+// and closeness alone doesn't separate attractive from plain faces well
+// (a fuller face can hit the bone ratios too), so the direct nudge is small.
+const RATIO_BASELINE = 88;
+const RATIO_NUDGE_PER_POINT = 0.3;
+const RATIO_NUDGE_MAX = 4;
+
+function ratioBlock(r: Ratios, report: RatioReport) {
+  const lines = report.items.map((it) => {
+    const spec = RATIO_SPECS[it.key];
+    const verdict = it.inRange ? "IN ideal range" : `outside ideal (closeness ${it.score}/100)`;
+    return `- ${spec.label}: ${formatRatio(it.key, it.value)} — ideal ${formatIdeal(it.key)} — ${verdict}. (${spec.help})`;
+  });
+  return `Measured facial ratios for this person (from a 478-point face mesh on the near-frontal frames — objective geometry, though small webcam/pose errors are possible):
+${lines.join("\n")}
+Overall closeness to the ideal ratios: ${report.score}/100.
+
+Use these as STRONG evidence. They are the established ideal proportions for a highly attractive face. Map them to the traits: proportions ← midface ratio, facial thirds/fifths, chin÷philtrum, mouth÷nose, lower÷full face; cheekbones ← FWHR, cheekbone÷jaw width; jaw ← cheekbone÷jaw width, chin÷philtrum; eyes ← ESR, canthal tilt, eye shape (PFR), EME angle; symmetry ← measured symmetry. A face that hits most ideals should score clearly high on those traits; a face far from them should not be scored high on proportions or structure just because it is groomed or well lit.
+Caveats: these ratios describe bone proportions only — they say nothing about skin, hair, facial fat or overall appeal, so don't let them override what you see for leanness, skin, hair or the overall impression. FWHR also rises with facial fat (a wide, full face can hit it), so only credit a high FWHR as structure when the face is lean. The ideals are largely male-derived: on female faces a higher canthal tilt and a slightly shorter lower third are normal and attractive. If one value obviously contradicts what you can see (a likely mismeasurement), trust your eyes for that one value only.`;
+}
 
 export type ScoreResult =
   | { ok: true; score: AiScore; model: string; usage: { input: number; output: number } }
@@ -116,21 +147,24 @@ function clampInt(n: number) {
 
 export type Frame = { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string };
 
-export async function scoreFace(frames: Frame[], client = new Anthropic()): Promise<ScoreResult> {
+export async function scoreFace(frames: Frame[], ratios: Ratios | null = null, client = new Anthropic()): Promise<ScoreResult> {
+  const report = ratios ? ratioReport(ratios) : null;
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   frames.forEach((f, i) => {
     content.push({ type: "text", text: `Frame ${i + 1}:` });
     content.push({ type: "image", source: { type: "base64", media_type: f.mediaType, data: f.data } });
   });
+  if (ratios && report) content.push({ type: "text", text: ratioBlock(ratios, report) });
   content.push({ type: "text", text: "Score this person." });
 
   const response = await client.beta.messages.parse({
     model: SCORE_MODEL,
-    max_tokens: 4000,
+    max_tokens: 8000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    output_config: { effort: "medium", format: betaZodOutputFormat(ScoreSchema) },
+    // High effort: more careful looking before committing to numbers.
+    output_config: { effort: "high", format: betaZodOutputFormat(ScoreSchema) },
     messages: [{ role: "user", content }]
   });
 
@@ -145,12 +179,20 @@ export async function scoreFace(frames: Frame[], client = new Anthropic()): Prom
 
   const traits = Object.fromEntries(TRAIT_KEYS.map((k) => [k, clampInt(out.traits[k])])) as Record<TraitKey, number>;
 
+  let overall = clampInt(out.overall);
+  if (report) {
+    const nudge = Math.round((report.score - RATIO_BASELINE) * RATIO_NUDGE_PER_POINT);
+    overall = clampInt(overall + Math.max(-RATIO_NUDGE_MAX, Math.min(RATIO_NUDGE_MAX, nudge)));
+  }
+
   return {
     ok: true,
     model: response.model,
     usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
     score: {
-      overall: clampInt(out.overall),
+      ratios: ratios ?? null,
+      ratioScore: report?.score ?? null,
+      overall,
       traits,
       confidence: out.confidence,
       headline: out.headline.slice(0, 120),

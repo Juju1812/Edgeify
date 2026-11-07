@@ -9,6 +9,8 @@ import { useFaceTracker, type Pt } from "@/lib/client/face-mesh";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
 import { DEFAULT_OVERLAY_COLOR, type MeProfile, type Traits } from "@/lib/shared/types";
 import { LiveScanOverlay, REVEAL_TOTAL_MS, ScanOverlay, type LiveMode } from "@/components/face-overlay";
+import { RatiosCard } from "@/components/ratios-card";
+import type { Ratios } from "@/lib/shared/ratios";
 import { Button, ButtonLink, Card, Notice, Spinner } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 
@@ -19,6 +21,8 @@ type Reading = {
   strengths: string[];
   improvements: string[];
   confidence: "low" | "medium" | "high";
+  ratios: Ratios | null;
+  ratioScore: number | null;
 };
 
 type Snapshot = { url: string; width: number; height: number; points: Pt[] | null };
@@ -72,11 +76,11 @@ export default function ScanPage() {
     }
     const pts = tracker.landmarks.current ? [...tracker.landmarks.current] : null;
     const still = grabMirroredFrame(video);
-    const frames = await captureFaceBurst(video, () => tracker.landmarks.current, 5, 280);
+    const { frames, ratios } = await captureFaceBurst(video, () => tracker.landmarks.current, 5, 280);
     const thumb = grabThumb(video);
     setPhase({ k: "analyzing" });
     try {
-      const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb } });
+      const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb, ratios } });
       setMe(r.me, true);
       const snap = still ? { ...still, points: pts } : null;
       if (tracker.landmarks.current) {
@@ -200,7 +204,7 @@ export default function ScanPage() {
                 >
                   <Spinner className="h-9 w-9" />
                   <p className="text-[17px] font-medium text-ink">Analyzing your face…</p>
-                  <p className="text-[14px] text-ink-3">This takes about ten seconds.</p>
+                  <p className="text-[14px] text-ink-3">This takes about fifteen seconds.</p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -341,6 +345,11 @@ function Result({
             </Card>
           </div>
         </div>
+        {reading.ratios && (
+          <div className="mt-5">
+            <RatiosCard ratios={reading.ratios} />
+          </div>
+        )}
         <p className="mt-6 text-center text-[13px] text-ink-4">
           Scores are an AI&apos;s opinion, for fun. They don&apos;t define you.
         </p>

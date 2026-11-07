@@ -158,7 +158,8 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     const v = cam.videoRef.current;
     setPhase("capturing");
     setCaptureMsg(null);
-    const frames = v ? await captureFaceBurst(v, () => tracker.landmarks.current, 5, 280) : [];
+    const shot = v ? await captureFaceBurst(v, () => tracker.landmarks.current, 5, 280) : { frames: [], ratios: null };
+    const frames = shot.frames;
     if (!frames.length) {
       setCaptureMsg("Waiting for your camera…");
       setPhase("retry");
@@ -167,7 +168,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     }
     setPhase("scoring");
     try {
-      const r = await api<{ ok: boolean; match: MatchView }>(`/api/match/${id}/frames`, { body: { frames } });
+      const r = await api<{ ok: boolean; match: MatchView }>(`/api/match/${id}/frames`, { body: { frames, ratios: shot.ratios } });
       apply(r.match);
       setPhase("scored");
     } catch (e) {

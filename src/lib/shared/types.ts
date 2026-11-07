@@ -65,6 +65,9 @@ export type Score = {
   confidence: "low" | "medium" | "high";
   readings: number;
   updatedAt: number;
+  /** Facial ratios measured on the most recent scan (if face tracking ran). */
+  ratios?: Partial<Record<string, number>> | null;
+  ratioScore?: number | null;
 };
 
 export type MeProfile = {

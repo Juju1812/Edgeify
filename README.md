@@ -11,7 +11,7 @@ Scan your face, get an honest AI looks score (0–100, seven traits), then face 
 
 ## How it works
 
-- **Scoring** — the browser sends 3 webcam frames to `/api/scan`; Claude rates them against a population-anchored rubric (50 = average adult). A profile's score is the rolling mean of its last 5 readings (scans + matches) to smooth out lighting noise. Apparent minors, photos of screens, no-face etc. are rejected.
+- **Scoring** — the browser tracks the face (MediaPipe, 478 points), sends 5 tight face crops plus measured facial ratios (FWHR, midface, ESR, canthal tilt, … — `src/lib/shared/ratios.ts`) to `/api/scan`; Claude (high effort) rates them against a population-anchored rubric (50 = average adult) using the ratios as evidence, with a small capped ratio nudge on the overall. A profile's score is the rolling mean of its last 5 readings (scans + matches) to smooth out lighting noise. Apparent minors, photos of screens, no-face etc. are rejected.
 - **Server-authoritative** — scores, ELO, wins/losses and match results are only ever written by the server. Clients can edit just bio / country / leaderboard visibility.
 - **Matches** (`src/lib/server/matches.ts`) — ranked queue pairs players by ELO (window widens with wait time). Both players ready up → countdown → each browser uploads its own frames → the server scores both → higher overall wins (trait sum breaks ties). Timeouts forfeit or cancel automatically. Video is a nice-to-have: if WebRTC can't connect, the face-off still counts.
 - **Private rooms & tournaments** — 6-character codes; 4-player single-elimination bracket. Both are unranked.
@@ -30,7 +30,7 @@ Pulled with `vercel env pull .env.local`:
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis |
 | `ANTHROPIC_API_KEY` | Face scoring |
 | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | TURN relay so players behind strict NATs can see each other (optional but strongly recommended) |
-| `SCANS_PER_DAY`, `MATCH_SCORES_PER_DAY`, `AI_CALLS_PER_DAY` | Cost caps (defaults 8 / 60 / 3000) |
+| `AI_CALLS_PER_DAY` | Site-wide safety cap on AI calls per day (default 3000). Per-player scans are unlimited apart from a burst guard. |
 
 ## Scripts
 

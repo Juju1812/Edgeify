@@ -2,24 +2,28 @@ import { handle, json, readJson } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { claimAttempt, leaveMatch, recordScore, viewMatch } from "@/lib/server/matches";
 import { fileReport, suspend } from "@/lib/server/safety";
-import { LIMITS, rateLimit } from "@/lib/server/ratelimit";
+import { rateLimit } from "@/lib/server/ratelimit";
+import { sanitizeRatios } from "@/lib/shared/ratios";
 import { parseFrames, scoreFramesOrExplain, UNUSABLE_MESSAGES } from "@/lib/server/scoring";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 /**
- * POST /api/match/:id/frames { frames } — the server scores MY camera
- * frames. Scores are never accepted from clients.
+ * POST /api/match/:id/frames { frames, ratios? } — the server scores MY
+ * camera frames. Scores are never accepted from clients; measured ratios are
+ * sanity-checked and only inform the AI (with a capped nudge).
  */
 export const POST = handle(async (req: Request, { params }: { params: { id: string } }) => {
   const me = await requireUser();
-  const frames = parseFrames((await readJson<{ frames?: unknown }>(req)).frames);
+  const body = await readJson<{ frames?: unknown; ratios?: unknown }>(req);
+  const frames = parseFrames(body.frames);
+  const ratios = sanitizeRatios(body.ratios);
   await claimAttempt(params.id, me);
-  await rateLimit("matchscore", me, LIMITS.matchScoresPerDay, 86400, "You've hit today's match limit. Come back tomorrow.");
+  await rateLimit("match-burst", me, 40, 600, "Slow down a little — try again in a few minutes.");
 
-  const r = await scoreFramesOrExplain(frames);
+  const r = await scoreFramesOrExplain(frames, ratios);
   if (!r.ok && r.reason === "explicit_content") {
     // Live video with a stranger: forfeit the match and pull them from matchmaking for a day.
     await fileReport({ target: me, by: "system", reason: "nudity", note: "AI flagged match frames", matchId: params.id, at: Date.now() });

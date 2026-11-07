@@ -31,7 +31,7 @@ export type MatchView = {
 };
 
 /** Seconds players have to land a usable score once capture starts. */
-export const CAPTURE_WINDOW_MS = 45_000;
+export const CAPTURE_WINDOW_MS = 75_000;
 /** How long both players have to become ready before the match is called off. */
 export const CONNECT_WINDOW_MS = 60_000;
 export const COUNTDOWN_MS = 4_000;

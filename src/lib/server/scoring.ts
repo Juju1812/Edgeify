@@ -2,6 +2,7 @@ import "server-only";
 import { scoreFace, type Frame, type ScoreResult, type UnusableReason } from "@/lib/scoring/ai-score";
 import { HttpError } from "./http";
 import { reserveAiCall } from "./ratelimit";
+import type { Ratios } from "@/lib/shared/ratios";
 
 const MAX_FRAMES = 5;
 const MAX_FRAME_BASE64 = 600_000; // ~450KB jpeg; client sends ~640px frames ≈ 60KB
@@ -31,10 +32,10 @@ export const UNUSABLE_MESSAGES: Record<UnusableReason | "refused" | "parse_faile
 };
 
 /** Score frames with the global AI budget enforced. */
-export async function scoreFramesOrExplain(frames: Frame[]): Promise<ScoreResult> {
+export async function scoreFramesOrExplain(frames: Frame[], ratios: Ratios | null = null): Promise<ScoreResult> {
   await reserveAiCall();
   try {
-    const r = await scoreFace(frames);
+    const r = await scoreFace(frames, ratios);
     // Log rejections with the model's own explanation (visible in Vercel logs).
     if (!r.ok) console.warn(`[scan rejected] reason=${r.reason} frames=${frames.length} note=${r.note ?? ""}`);
     return r;
