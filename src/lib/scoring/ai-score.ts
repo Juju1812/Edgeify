@@ -21,7 +21,6 @@ const UNUSABLE_REASONS = [
   "too_dark_or_blurry",
   "bad_angle",
   "not_a_live_photo",
-  "appears_under_18",
   "explicit_content"
 ] as const;
 export type UnusableReason = (typeof UNUSABLE_REASONS)[number];
@@ -61,6 +60,8 @@ export type ScoreResult =
 // Frozen system prompt — keep byte-stable so it can be cached.
 const SYSTEM_PROMPT = `You are the scoring engine for Edgify, an opt-in entertainment app where adults scan their own face with their webcam and compete on a looks score. Users choose to be rated and expect a candid, accurate number — inflated or compressed scores ruin the game.
 
+Every user has confirmed at signup that they are 18 or older. Do not try to estimate age or refuse anyone for looking young — many adults have youthful faces, and judging age from a webcam frame is unreliable.
+
 You will receive several webcam frames of ONE person taken seconds apart. Judge the person, not the photo: look past webcam softness, mild noise and ordinary indoor lighting the way a person looking at the screen would.
 
 ## Gate first
@@ -71,7 +72,6 @@ Set usable=false (and overall/traits to 0) if any of these apply, choosing the m
 - too_dark_or_blurry: too dark, blown out or blurred to judge features
 - bad_angle: face turned so far that both eyes and the jaw are not clearly visible
 - not_a_live_photo: it is clearly a photo of a screen/printout, a drawing, or an AI render
-- appears_under_18: ONLY if the person obviously looks like a child or young teen (roughly 15 or younger). Every user has confirmed they are 18+, so give young-looking adults the benefit of the doubt — a baby face, small build or no facial hair is not a reason to refuse.
 - explicit_content: visible genitals, exposed female nipples, sexual acts or sexual gestures, or an obscene gesture/object held up to the camera. (A shirtless man or a low neckline alone is NOT explicit.) This check matters most — these frames come from live video calls with strangers.
 Otherwise usable=true and unusable_reason="none".
 

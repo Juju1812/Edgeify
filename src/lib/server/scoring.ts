@@ -25,7 +25,6 @@ export const UNUSABLE_MESSAGES: Record<UnusableReason | "refused" | "parse_faile
   too_dark_or_blurry: "Too dark or blurry. Face a window or a lamp and hold still.",
   bad_angle: "Look straight at the camera.",
   not_a_live_photo: "That doesn't look like a live camera feed.",
-  appears_under_18: "Edgify is for adults only.",
   explicit_content: "That frame broke our content rules. Keep it clean — repeat violations get you suspended.",
   refused: "We couldn't score that. Try again with a clear, front-facing shot.",
   parse_failed: "Scoring hiccup — please try again."
