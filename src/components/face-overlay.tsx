@@ -3,62 +3,297 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { DOT_INDICES, TRAIT_ANCHORS, type Pt } from "@/lib/client/face-mesh";
-import { DEFAULT_OVERLAY_COLOR, TRAIT_KEYS, TRAIT_LABELS, type Traits } from "@/lib/shared/types";
+import { DEFAULT_OVERLAY_COLOR, TRAIT_KEYS, TRAIT_LABELS, type TraitKey, type Traits } from "@/lib/shared/types";
+
+const FONT = "-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif";
+
+/** Compact names so chips stay small on the face. */
+const SHORT_LABELS: Record<TraitKey, string> = { ...TRAIT_LABELS, structure: "Structure", jaw: "Jaw" };
+
+// ─── Shared layout ─────────────────────────────────────────────────────
+
+type Callout = { key: TraitKey; ax: number; ay: number; lx: number; ly: number; side: "left" | "right" };
+
+export type OverlayLayout = {
+  unit: number;
+  chipW: number;
+  chipH: number;
+  fs: number;
+  callouts: Callout[];
+  total: { x: number; y: number; w: number; h: number };
+};
+
+/** Spread labels vertically so chips never overlap. */
+function spread(items: Callout[], gap: number, top: number, bottom: number) {
+  items.sort((a, b) => a.ly - b.ly);
+  for (let i = 1; i < items.length; i++) if (items[i].ly - items[i - 1].ly < gap) items[i].ly = items[i - 1].ly + gap;
+  const over = items.length ? items[items.length - 1].ly - bottom : 0;
+  if (over > 0) items.forEach((it) => (it.ly -= over));
+  for (let i = items.length - 2; i >= 0; i--) if (items[i + 1].ly - items[i].ly < gap) items[i].ly = items[i + 1].ly - gap;
+  items.forEach((it) => (it.ly = Math.max(top, it.ly)));
+}
 
 /**
- * Live dots drawn over the (mirrored) camera preview. Reads landmarks from a
- * ref every animation frame, so React never re-renders per frame. The canvas
- * must be laid over a video using `object-cover`, so we replicate the crop.
+ * Where every chip, leader line and the overall pill go, given face points
+ * in PIXEL coordinates of a W×H surface. Used by the live canvas and the
+ * still SVG so both look identical.
  */
-export function LiveFaceDots({
+export function layoutOverlay(px: Pt[], W: number, H: number): OverlayLayout {
+  const unit = Math.min(W, H) / 100;
+  const roomy = W / H > 1.2;
+  const chipW = unit * (roomy ? 27 : 23);
+  const chipH = unit * (roomy ? 7.6 : 6.8);
+  const fs = unit * (roomy ? 3.5 : 3.15);
+
+  const xs = DOT_INDICES.map((i) => px[i]?.x ?? W / 2);
+  const ys = DOT_INDICES.map((i) => px[i]?.y ?? H / 2);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const faceTop = Math.min(...ys);
+
+  const totalW = unit * 30;
+  const totalH = unit * 15;
+  const totalY = Math.max(unit * 2.5, Math.min(faceTop - totalH - unit * 3, unit * 5));
+
+  const edge = unit * 2.2;
+  const callouts: Callout[] = TRAIT_KEYS.map((key) => {
+    const a = TRAIT_ANCHORS[key];
+    const p = px[a.i] ?? { x: W / 2, y: H / 2 };
+    const side = a.side;
+    const lx = roomy
+      ? side === "left"
+        ? Math.max(edge, minX - unit * 7 - chipW)
+        : Math.min(W - edge - chipW, maxX + unit * 7)
+      : side === "left"
+        ? edge
+        : W - edge - chipW;
+    return { key, ax: p.x, ay: p.y, lx, ly: p.y - chipH / 2, side };
+  });
+  const gap = chipH + unit * 1.6;
+  const top = totalY + totalH + unit * 2;
+  const bottom = H - chipH - unit * 3;
+  spread(callouts.filter((c) => c.side === "left"), gap, top, bottom);
+  spread(callouts.filter((c) => c.side === "right"), gap, top, bottom);
+
+  return { unit, chipW, chipH, fs, callouts, total: { x: W / 2 - totalW / 2, y: totalY, w: totalW, h: totalH } };
+}
+
+// ─── Live canvas overlay ───────────────────────────────────────────────
+
+export type LiveMode =
+  | { k: "dots" }
+  | { k: "reading" }
+  | { k: "reveal"; traits: Traits; overall: number; startedAt: number };
+
+/** ms between each trait locking in during the reveal. */
+export const REVEAL_STEP = 320;
+export const REVEAL_TOTAL_MS = REVEAL_STEP * (TRAIT_KEYS.length + 1) + 500;
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/**
+ * Everything drawn over the live, mirrored camera preview: tracking dots,
+ * and — while the AI reads the face — chips whose numbers spin, then lock in
+ * one by one with the overall score last. Drawn on a canvas every frame so
+ * it follows the face without React re-renders.
+ */
+export function LiveScanOverlay({
   landmarks,
   videoRef,
-  color = DEFAULT_OVERLAY_COLOR
+  color = DEFAULT_OVERLAY_COLOR,
+  mode
 }: {
   landmarks: React.MutableRefObject<Pt[] | null>;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   color?: string;
+  mode: LiveMode;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  // Smoothed chip positions so labels glide instead of jittering with the face.
+  const smooth = useRef<Record<string, { x: number; y: number }>>({});
+  const scramble = useRef<{ at: number; vals: Record<string, number> }>({ at: 0, vals: {} });
+  const appearedAt = useRef<number | null>(null);
 
   useEffect(() => {
     let raf = 0;
-    const draw = () => {
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw);
       const c = canvasRef.current;
       const v = videoRef.current;
-      if (c && v && v.videoWidth) {
-        const dpr = window.devicePixelRatio || 1;
-        const w = c.clientWidth;
-        const h = c.clientHeight;
-        if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
-          c.width = Math.round(w * dpr);
-          c.height = Math.round(h * dpr);
-        }
-        const ctx = c.getContext("2d")!;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, w, h);
-        const pts = landmarks.current;
-        if (pts) {
-          // object-cover mapping from video space to element space
-          const scale = Math.max(w / v.videoWidth, h / v.videoHeight);
-          const dw = v.videoWidth * scale;
-          const dh = v.videoHeight * scale;
-          const ox = (w - dw) / 2;
-          const oy = (h - dh) / 2;
-          const r = Math.max(1.6, Math.min(w, h) / 230);
-          ctx.fillStyle = color;
-          ctx.shadowColor = "rgba(0,0,0,0.45)";
-          ctx.shadowBlur = 3;
-          for (const i of DOT_INDICES) {
-            const p = pts[i];
-            if (!p) continue;
-            ctx.beginPath();
-            ctx.arc(ox + p.x * dw, oy + p.y * dh, r, 0, Math.PI * 2);
-            ctx.fill();
+      if (!c || !v || !v.videoWidth) return;
+      const dpr = window.devicePixelRatio || 1;
+      const W = c.clientWidth;
+      const H = c.clientHeight;
+      if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) {
+        c.width = Math.round(W * dpr);
+        c.height = Math.round(H * dpr);
+      }
+      const ctx = c.getContext("2d")!;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const norm = landmarks.current;
+      if (!norm) return;
+
+      // object-cover mapping, video space → element space
+      const scale = Math.max(W / v.videoWidth, H / v.videoHeight);
+      const dw = v.videoWidth * scale;
+      const dh = v.videoHeight * scale;
+      const ox = (W - dw) / 2;
+      const oy = (H - dh) / 2;
+      const px = norm.map((p) => ({ x: ox + p.x * dw, y: oy + p.y * dh }));
+
+      const m = modeRef.current;
+      const L = layoutOverlay(px, W, H);
+      const u = L.unit;
+
+      // Dots
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 3;
+      const r = Math.max(1.6, u * 0.55);
+      for (const i of DOT_INDICES) {
+        const p = px[i];
+        if (!p) continue;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      if (m.k === "dots") {
+        appearedAt.current = null;
+        return;
+      }
+      if (appearedAt.current === null) appearedAt.current = now;
+      const since = now - appearedAt.current;
+
+      // Re-roll the spinning numbers ~12×/s
+      if (now - scramble.current.at > 85) {
+        scramble.current = {
+          at: now,
+          vals: Object.fromEntries([...TRAIT_KEYS, "overall"].map((k) => [k, 35 + Math.floor(Math.random() * 60)]))
+        };
+      }
+
+      ctx.save();
+      ctx.font = `500 ${L.fs * 0.82}px ${FONT}`;
+      L.callouts.forEach((cl, n) => {
+        // Chips grow out of their dot one after another.
+        const grow = Math.min(1, Math.max(0, (since - n * 90) / 260));
+        if (grow <= 0) return;
+        const prev = smooth.current[cl.key];
+        const tx = prev ? prev.x + (cl.lx - prev.x) * 0.25 : cl.lx;
+        const ty = prev ? prev.y + (cl.ly - prev.y) * 0.25 : cl.ly;
+        smooth.current[cl.key] = { x: tx, y: ty };
+
+        let locked = false;
+        let pop = 0;
+        let value = scramble.current.vals[cl.key];
+        if (m.k === "reveal") {
+          const lockAt = m.startedAt + n * REVEAL_STEP;
+          if (now >= lockAt) {
+            locked = true;
+            value = m.traits[cl.key];
+            pop = Math.max(0, 1 - (now - lockAt) / 260);
           }
         }
+
+        const cw = L.chipW;
+        const ch = L.chipH * (1 + pop * 0.12);
+        const cx = tx;
+        const cy = ty - (ch - L.chipH) / 2;
+        const endX = cl.side === "left" ? cx + cw : cx;
+        const endY = ty + L.chipH / 2;
+        const elbowX = cl.side === "left" ? endX + u * 3 : endX - u * 3;
+
+        ctx.globalAlpha = grow;
+        // leader line from the dot
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, u * 0.28);
+        ctx.shadowColor = "rgba(0,0,0,0.5)";
+        ctx.shadowBlur = 3;
+        ctx.beginPath();
+        ctx.moveTo(cl.ax, cl.ay);
+        ctx.lineTo(cl.ax + (elbowX - cl.ax) * grow, cl.ay + (endY - cl.ay) * grow);
+        if (grow >= 1) ctx.lineTo(endX, endY);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cl.ax, cl.ay, Math.max(2.4, u * 1.0), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (grow >= 1) {
+          roundRect(ctx, cx, cy, cw, ch, ch / 2);
+          ctx.fillStyle = "rgba(0,0,0,0.55)";
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = locked ? 0.75 : 0.4;
+          ctx.lineWidth = Math.max(1, u * 0.22);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.textBaseline = "middle";
+          ctx.textAlign = "left";
+          ctx.fillStyle = "rgba(255,255,255,0.88)";
+          ctx.font = `500 ${L.fs * 0.82}px ${FONT}`;
+          ctx.fillText(SHORT_LABELS[cl.key], cx + u * 2.6, cy + ch / 2);
+          ctx.textAlign = "right";
+          ctx.font = `700 ${L.fs * (1.05 + pop * 0.25)}px ${FONT}`;
+          ctx.fillStyle = color;
+          ctx.globalAlpha = locked ? 1 : 0.5;
+          ctx.fillText(String(value), cx + cw - u * 2.6, cy + ch / 2);
+          ctx.globalAlpha = 1;
+        }
+      });
+
+      // Overall pill, top centre — spins until everything else has locked.
+      const T = L.total;
+      let overallLocked = false;
+      let overallVal = scramble.current.vals.overall;
+      let pop = 0;
+      if (m.k === "reveal") {
+        const lockAt = m.startedAt + TRAIT_KEYS.length * REVEAL_STEP + 150;
+        if (now >= lockAt) {
+          overallLocked = true;
+          overallVal = m.overall;
+          pop = Math.max(0, 1 - (now - lockAt) / 400);
+        }
       }
-      raf = requestAnimationFrame(draw);
+      const tGrow = Math.min(1, since / 300);
+      ctx.globalAlpha = tGrow;
+      const tw = T.w * (1 + pop * 0.15);
+      const th = T.h * (1 + pop * 0.15);
+      const tx = W / 2 - tw / 2;
+      const ty = T.y - (th - T.h) / 2;
+      roundRect(ctx, tx, ty, tw, th, th / 2);
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, u * 0.28);
+      ctx.globalAlpha = tGrow * (overallLocked ? 0.85 : 0.45);
+      ctx.stroke();
+      ctx.globalAlpha = tGrow;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.font = `600 ${u * 2.5}px ${FONT}`;
+      ctx.fillText(overallLocked ? "OVERALL" : "READING…", W / 2, ty + th * 0.27);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = tGrow * (overallLocked ? 1 : 0.55);
+      ctx.font = `800 ${u * (7.6 + pop * 1.5)}px ${FONT}`;
+      ctx.fillText(String(overallVal), W / 2, ty + th * 0.64);
+      ctx.restore();
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -67,33 +302,11 @@ export function LiveFaceDots({
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />;
 }
 
-/** Compact names so chips stay small on the photo. */
-const SHORT_LABELS: Record<(typeof TRAIT_KEYS)[number], string> = {
-  ...TRAIT_LABELS,
-  structure: "Structure",
-  jaw: "Jaw"
-};
-
-type Callout ={ key: (typeof TRAIT_KEYS)[number]; ax: number; ay: number; lx: number; ly: number; side: "left" | "right" };
-
-/** Spread labels vertically so chips never overlap. */
-function spread(items: Callout[], minGap: number, top: number, bottom: number) {
-  items.sort((a, b) => a.ly - b.ly);
-  for (let i = 1; i < items.length; i++) {
-    if (items[i].ly - items[i - 1].ly < minGap) items[i].ly = items[i - 1].ly + minGap;
-  }
-  const overflow = items.length ? items[items.length - 1].ly - bottom : 0;
-  if (overflow > 0) items.forEach((it) => (it.ly -= overflow));
-  for (let i = items.length - 2; i >= 0; i--) {
-    if (items[i + 1].ly - items[i].ly < minGap) items[i].ly = items[i + 1].ly - minGap;
-  }
-  items.forEach((it) => (it.ly = Math.max(top, it.ly)));
-}
+// ─── Still result graphic ──────────────────────────────────────────────
 
 /**
- * The result graphic: the scanned photo with white (or custom) dots on the
- * face, a leader line from each feature to its trait score, and the total
- * score at the top.
+ * The scanned photo with dots on the face, a leader line from each feature
+ * to its trait score, and the overall score at the top.
  */
 export function ScanOverlay({
   image,
@@ -114,171 +327,81 @@ export function ScanOverlay({
 }) {
   const W = width;
   const H = height;
-  const unit = Math.min(W, H) / 100; // scale everything to the image
-  // Wide (landscape webcam) frames have room beside the face; tight or
-  // portrait frames get slimmer chips pinned to the edges.
-  const roomy = W / H > 1.2;
-  const chipW = unit * (roomy ? 27 : 22.5);
-  const chipH = unit * (roomy ? 7.6 : 6.6);
-  const fs = unit * (roomy ? 3.5 : 3.1);
-
-  let callouts: Callout[] = [];
-  let faceTop = H * 0.12;
-  if (points) {
-    const xs = DOT_INDICES.map((i) => points[i]?.x ?? 0.5);
-    const ys = DOT_INDICES.map((i) => points[i]?.y ?? 0.5);
-    const minX = Math.min(...xs) * W;
-    const maxX = Math.max(...xs) * W;
-    faceTop = Math.min(...ys) * H;
-    callouts = TRAIT_KEYS.map((key) => {
-      const a = TRAIT_ANCHORS[key];
-      const p = points[a.i] ?? { x: 0.5, y: 0.5 };
-      const ax = p.x * W;
-      const ay = p.y * H;
-      const side = a.side;
-      const edge = unit * 2.2;
-      const lx = roomy
-        ? side === "left"
-          ? Math.max(edge, minX - unit * 7 - chipW)
-          : Math.min(W - edge - chipW, maxX + unit * 7)
-        : side === "left"
-          ? edge
-          : W - edge - chipW;
-      return { key, ax, ay, lx, ly: ay - chipH / 2, side };
-    });
-    const gap = chipH + unit * 1.6;
-    const top = unit * 16;
-    const bottom = H - chipH - unit * 3;
-    spread(callouts.filter((c) => c.side === "left"), gap, top, bottom);
-    spread(callouts.filter((c) => c.side === "right"), gap, top, bottom);
-  }
-
-  const totalY = Math.max(unit * 3, Math.min(faceTop - unit * 17, unit * 6));
+  const px = points ? points.map((p) => ({ x: p.x * W, y: p.y * H })) : null;
+  const L = px ? layoutOverlay(px, W, H) : null;
+  const u = L?.unit ?? Math.min(W, H) / 100;
+  const T = L?.total ?? { x: W / 2 - u * 15, y: u * 5, w: u * 30, h: u * 15 };
 
   return (
     <div className="relative w-full overflow-hidden rounded-[22px] bg-black">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={`Scan: ${overall} out of 100`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={`Overall score ${overall} out of 100`}>
         <image href={image} x={0} y={0} width={W} height={H} preserveAspectRatio="xMidYMid slice" />
-        {/* soft vignette so labels read on any background */}
         <defs>
           <radialGradient id="vig" cx="50%" cy="45%" r="75%">
             <stop offset="55%" stopColor="#000" stopOpacity="0" />
             <stop offset="100%" stopColor="#000" stopOpacity="0.45" />
           </radialGradient>
           <filter id="ds" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="0" stdDeviation={unit * 0.35} floodColor="#000" floodOpacity="0.55" />
+            <feDropShadow dx="0" dy="0" stdDeviation={u * 0.35} floodColor="#000" floodOpacity="0.55" />
           </filter>
         </defs>
         <rect width={W} height={H} fill="url(#vig)" />
 
-        {points && (
+        {px && (
           <g filter="url(#ds)">
             {DOT_INDICES.map((i, n) => {
-              const p = points[i];
+              const p = px[i];
               if (!p) return null;
               return (
                 <motion.circle
                   key={i}
-                  cx={p.x * W}
-                  cy={p.y * H}
-                  r={unit * 0.62}
+                  cx={p.x}
+                  cy={p.y}
+                  r={u * 0.62}
                   fill={color}
                   initial={{ opacity: 0, scale: 0 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.15 + n * 0.008, duration: 0.3 }}
+                  transition={{ delay: 0.1 + n * 0.006, duration: 0.3 }}
                 />
               );
             })}
           </g>
         )}
 
-        {callouts.map((c, n) => {
-          const chipX = c.lx;
-          const chipY = c.ly;
-          const endX = c.side === "left" ? chipX + chipW : chipX;
-          const endY = chipY + chipH / 2;
-          const elbowX = c.side === "left" ? endX + unit * 3 : endX - unit * 3;
+        {L?.callouts.map((c, n) => {
+          const endX = c.side === "left" ? c.lx + L.chipW : c.lx;
+          const endY = c.ly + L.chipH / 2;
+          const elbowX = c.side === "left" ? endX + u * 3 : endX - u * 3;
           return (
-            <motion.g
-              key={c.key}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.75 + n * 0.09, duration: 0.4 }}
-            >
+            <motion.g key={c.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 + n * 0.06, duration: 0.35 }}>
               <polyline
                 points={`${c.ax},${c.ay} ${elbowX},${endY} ${endX},${endY}`}
                 fill="none"
                 stroke={color}
-                strokeWidth={unit * 0.28}
+                strokeWidth={u * 0.28}
                 strokeLinejoin="round"
                 filter="url(#ds)"
               />
-              <circle cx={c.ax} cy={c.ay} r={unit * 1.05} fill={color} filter="url(#ds)" />
-              <rect x={chipX} y={chipY} width={chipW} height={chipH} rx={chipH / 2} fill="rgba(0,0,0,0.55)" />
-              <rect
-                x={chipX}
-                y={chipY}
-                width={chipW}
-                height={chipH}
-                rx={chipH / 2}
-                fill="none"
-                stroke={color}
-                strokeOpacity="0.55"
-                strokeWidth={unit * 0.2}
-              />
-              <text
-                x={chipX + unit * 2.6}
-                y={chipY + chipH / 2}
-                dominantBaseline="central"
-                fontSize={fs * 0.82}
-                fontWeight={500}
-                fill="#fff"
-                fillOpacity="0.85"
-                fontFamily="-apple-system, BlinkMacSystemFont, Inter, sans-serif"
-              >
+              <circle cx={c.ax} cy={c.ay} r={u * 1.0} fill={color} filter="url(#ds)" />
+              <rect x={c.lx} y={c.ly} width={L.chipW} height={L.chipH} rx={L.chipH / 2} fill="rgba(0,0,0,0.55)" />
+              <rect x={c.lx} y={c.ly} width={L.chipW} height={L.chipH} rx={L.chipH / 2} fill="none" stroke={color} strokeOpacity="0.7" strokeWidth={u * 0.22} />
+              <text x={c.lx + u * 2.6} y={endY} dominantBaseline="central" fontSize={L.fs * 0.82} fontWeight={500} fill="#fff" fillOpacity="0.88" fontFamily={FONT}>
                 {SHORT_LABELS[c.key]}
               </text>
-              <text
-                x={chipX + chipW - unit * 2.6}
-                y={chipY + chipH / 2}
-                dominantBaseline="central"
-                textAnchor="end"
-                fontSize={fs * 1.05}
-                fontWeight={700}
-                fill={color}
-                fontFamily="-apple-system, BlinkMacSystemFont, Inter, sans-serif"
-              >
+              <text x={c.lx + L.chipW - u * 2.6} y={endY} dominantBaseline="central" textAnchor="end" fontSize={L.fs * 1.05} fontWeight={700} fill={color} fontFamily={FONT}>
                 {traits[c.key]}
               </text>
             </motion.g>
           );
         })}
 
-        {/* Total score, top centre */}
-        <motion.g initial={{ opacity: 0, y: -unit * 2 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.5 }}>
-          <rect x={W / 2 - unit * 13} y={totalY} width={unit * 26} height={unit * 13} rx={unit * 6.5} fill="rgba(0,0,0,0.55)" />
-          <rect
-            x={W / 2 - unit * 13}
-            y={totalY}
-            width={unit * 26}
-            height={unit * 13}
-            rx={unit * 6.5}
-            fill="none"
-            stroke={color}
-            strokeOpacity="0.6"
-            strokeWidth={unit * 0.25}
-          />
-          <text
-            x={W / 2}
-            y={totalY + unit * 6.5}
-            dominantBaseline="central"
-            textAnchor="middle"
-            fontSize={unit * 8.4}
-            fontWeight={800}
-            fill={color}
-            fontFamily="-apple-system, BlinkMacSystemFont, Inter, sans-serif"
-            letterSpacing={-unit * 0.2}
-          >
+        <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.4 }}>
+          <rect x={T.x} y={T.y} width={T.w} height={T.h} rx={T.h / 2} fill="rgba(0,0,0,0.6)" />
+          <rect x={T.x} y={T.y} width={T.w} height={T.h} rx={T.h / 2} fill="none" stroke={color} strokeOpacity="0.85" strokeWidth={u * 0.28} />
+          <text x={W / 2} y={T.y + T.h * 0.27} dominantBaseline="central" textAnchor="middle" fontSize={u * 2.5} fontWeight={600} fill="#fff" fillOpacity="0.8" fontFamily={FONT} letterSpacing={u * 0.15}>
+            OVERALL
+          </text>
+          <text x={W / 2} y={T.y + T.h * 0.64} dominantBaseline="central" textAnchor="middle" fontSize={u * 7.6} fontWeight={800} fill={color} fontFamily={FONT}>
             {overall}
           </text>
         </motion.g>

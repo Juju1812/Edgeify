@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
@@ -8,7 +8,7 @@ import { captureBurst, grabMirroredFrame, grabThumb, useCamera } from "@/lib/cli
 import { useFaceTracker, type Pt } from "@/lib/client/face-mesh";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
 import { DEFAULT_OVERLAY_COLOR, type MeProfile, type Traits } from "@/lib/shared/types";
-import { LiveFaceDots, ScanOverlay } from "@/components/face-overlay";
+import { LiveScanOverlay, REVEAL_TOTAL_MS, ScanOverlay, type LiveMode } from "@/components/face-overlay";
 import { Button, ButtonLink, Card, Notice, Spinner } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 
@@ -27,6 +27,8 @@ type Phase =
   | { k: "intro" }
   | { k: "countdown"; n: number }
   | { k: "analyzing" }
+  /** Scores arrived — they lock in live on the camera feed. */
+  | { k: "reveal"; reading: Reading; me: MeProfile; snap: Snapshot | null; startedAt: number; done: boolean }
   | { k: "result"; reading: Reading; me: MeProfile; snap: Snapshot | null }
   | { k: "error"; message: string; retry: boolean };
 
@@ -37,6 +39,23 @@ export default function ScanPage() {
   const camLive = cam.state === "live";
   const tracker = useFaceTracker(cam.videoRef, camLive);
   const color = me?.overlayColor || DEFAULT_OVERLAY_COLOR;
+
+  // Mark the live reveal finished once every score has locked in.
+  const revealStart = phase.k === "reveal" ? phase.startedAt : null;
+  useEffect(() => {
+    if (revealStart === null) return;
+    const t = setTimeout(
+      () => setPhase((p) => (p.k === "reveal" ? { ...p, done: true } : p)),
+      Math.max(0, revealStart + REVEAL_TOTAL_MS - performance.now())
+    );
+    return () => clearTimeout(t);
+  }, [revealStart]);
+
+  function showBreakdown() {
+    if (phase.k !== "reveal") return;
+    setPhase({ k: "result", reading: phase.reading, me: phase.me, snap: phase.snap });
+    cam.stop();
+  }
 
   async function run() {
     const stream = await cam.start();
@@ -59,8 +78,14 @@ export default function ScanPage() {
     try {
       const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb } });
       setMe(r.me, true);
-      setPhase({ k: "result", reading: r.reading, me: r.me, snap: still ? { ...still, points: pts } : null });
-      cam.stop();
+      const snap = still ? { ...still, points: pts } : null;
+      if (tracker.landmarks.current) {
+        // Face still in view: lock the scores in live on the camera.
+        setPhase({ k: "reveal", reading: r.reading, me: r.me, snap, startedAt: performance.now(), done: false });
+      } else {
+        setPhase({ k: "result", reading: r.reading, me: r.me, snap });
+        cam.stop();
+      }
     } catch (e) {
       const err = e instanceof ApiError ? e : null;
       setPhase({
@@ -86,11 +111,21 @@ export default function ScanPage() {
   }
 
   const tracking = camLive && tracker.faceFound;
+  const liveMode: LiveMode =
+    phase.k === "analyzing"
+      ? { k: "reading" }
+      : phase.k === "reveal"
+        ? { k: "reveal", traits: phase.reading.traits, overall: phase.reading.overall, startedAt: phase.startedAt }
+        : { k: "dots" };
+  // Without a tracked face there's nothing to draw scores onto — fall back to a spinner.
+  const readingFallback = phase.k === "analyzing" && (tracker.ready !== "ready" || !tracking);
   return (
     <main className="page">
       <div className="mx-auto max-w-[720px]">
         <div className="mb-6 text-center md:mb-8">
-          <h1 className="display text-[34px] md:text-[44px]">{me.score ? "Scan again" : "Get your score"}</h1>
+          <h1 className="display text-[34px] md:text-[44px]">
+            {phase.k === "analyzing" ? "Reading your face" : phase.k === "reveal" ? "Your score" : me.score ? "Scan again" : "Get your score"}
+          </h1>
           <p className="mt-1.5 text-[17px] text-ink-3">
             Face a window or a lamp, look straight ahead, and keep a neutral face.
           </p>
@@ -107,16 +142,24 @@ export default function ScanPage() {
                 camLive ? "opacity-100" : "opacity-0"
               )}
             />
-            {/* Live face dots once tracking; an oval guide until a face is found */}
-            {camLive && <LiveFaceDots landmarks={tracker.landmarks} videoRef={cam.videoRef} color={color} />}
-            {camLive && !tracking && (
+            {/* Live dots; while the AI reads, scores grow out of them and lock in */}
+            {camLive && (
+              <LiveScanOverlay landmarks={tracker.landmarks} videoRef={cam.videoRef} color={color} mode={liveMode} />
+            )}
+            {camLive && !tracking && phase.k !== "reveal" && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="h-[72%] w-auto aspect-[3/4] rounded-[50%] border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
               </div>
             )}
-            {camLive && tracker.ready === "ready" && (
+            {camLive && tracker.ready === "ready" && (phase.k === "intro" || phase.k === "countdown" || phase.k === "error") && (
               <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/45 px-3.5 py-1.5 text-[13px] font-medium text-white backdrop-blur">
                 {tracking ? "Face locked" : "Looking for your face…"}
+              </div>
+            )}
+            {phase.k === "analyzing" && !readingFallback && (
+              <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-[13px] font-medium text-white backdrop-blur">
+                <Spinner className="h-4 w-4" light />
+                Reading your face — hold still
               </div>
             )}
             {!camLive && (
@@ -149,7 +192,7 @@ export default function ScanPage() {
                   {phase.n}
                 </motion.div>
               )}
-              {phase.k === "analyzing" && (
+              {readingFallback && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -173,6 +216,20 @@ export default function ScanPage() {
               <Button size="lg" onClick={run} className="min-w-[220px]" disabled={cam.state === "starting"}>
                 {phase.k === "error" ? "Try again" : camLive ? "Start scan" : "Turn on camera & scan"}
               </Button>
+            )}
+            {phase.k === "reveal" && (
+              <motion.div
+                className="flex flex-wrap justify-center gap-3"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: phase.done ? 1 : 0.35, y: 0 }}
+              >
+                <Button size="lg" onClick={showBreakdown} disabled={!phase.done}>
+                  See full breakdown
+                </Button>
+                <Button size="lg" variant="secondary" onClick={() => setPhase({ k: "intro" })} disabled={!phase.done}>
+                  Scan again
+                </Button>
+              </motion.div>
             )}
             <p className="text-center text-[13px] text-ink-4">
               Three frames are sent to our AI to score, then discarded. A small thumbnail becomes your profile photo.
