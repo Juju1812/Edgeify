@@ -48,11 +48,41 @@ export function normalizeTraits(t: Partial<Record<string, number>> | null | unde
   };
 }
 
+// ─── PSL scale ─────────────────────────────────────────────────────────
+// Scores are aligned to the PSL scale: score = PSL × 10 + 10, so 50 = PSL 4
+// (dead average), 60 = PSL 5 (~84th percentile), 70 = PSL 6 (model tier,
+// ~97th), 80 = PSL 7 (~99.9th).
+export const SCORE_SCALE_VERSION = 2;
+
+export type Sex = "male" | "female" | "unclear";
+
+export function pslFromScore(overall: number) {
+  return Math.max(0, Math.min(9, (overall - 10) / 10));
+}
+
+export function formatPsl(overall: number) {
+  return `PSL ${pslFromScore(overall).toFixed(1)}`;
+}
+
+/** Community tier name for a score. "Subhuman" is deliberately not used. */
+export function tierName(overall: number, sex: Sex | null | undefined = "male") {
+  const psl = pslFromScore(overall);
+  const f = sex === "female";
+  if (psl >= 7) return f ? "Stacy" : "Chad";
+  if (psl >= 6) return f ? "Stacylite" : "Chadlite";
+  if (psl >= 5) return f ? "HTB" : "HTN";
+  if (psl >= 4) return f ? "MTB" : "MTN";
+  if (psl >= 3) return f ? "LTB" : "LTN";
+  return "Below average";
+}
+
 export type Reading = {
   overall: number;
   traits: Traits;
   at: number;
   source: "scan" | "match";
+  /** Scoring scale the reading was made on (2 = PSL-aligned). */
+  v?: number;
 };
 
 /** The user's current score: a rolling average of their recent readings. */
@@ -68,6 +98,8 @@ export type Score = {
   /** Facial ratios measured on the most recent scan (if face tracking ran). */
   ratios?: Partial<Record<string, number>> | null;
   ratioScore?: number | null;
+  /** Apparent sex from the latest scan — only used to pick tier names. */
+  sex?: Sex;
 };
 
 export type MeProfile = {
@@ -98,6 +130,7 @@ export type PublicProfile = Pick<
   overall: number | null;
   traits: Traits | null;
   headline: string | null;
+  sex: Sex | null;
   rank: number | null;
   online: boolean;
 };

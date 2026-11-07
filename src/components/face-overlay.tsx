@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { DOT_INDICES, TRAIT_ANCHORS, type Pt } from "@/lib/client/face-mesh";
-import { DEFAULT_OVERLAY_COLOR, TRAIT_KEYS, TRAIT_LABELS, type TraitKey, type Traits } from "@/lib/shared/types";
+import { DEFAULT_OVERLAY_COLOR, formatPsl, TRAIT_KEYS, TRAIT_LABELS, type TraitKey, type Traits } from "@/lib/shared/types";
 
 const FONT = "-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif";
 
@@ -52,7 +52,7 @@ export function layoutOverlay(px: Pt[], W: number, H: number): OverlayLayout {
   const faceTop = Math.min(...ys);
 
   const totalW = unit * 30;
-  const totalH = unit * 15;
+  const totalH = unit * 18;
   const totalY = Math.max(unit * 2.5, Math.min(faceTop - totalH - unit * 3, unit * 5));
 
   const edge = unit * 2.2;
@@ -287,12 +287,16 @@ export function LiveScanOverlay({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "rgba(255,255,255,0.8)";
-      ctx.font = `600 ${u * 2.5}px ${FONT}`;
-      ctx.fillText(overallLocked ? "OVERALL" : "READING…", W / 2, ty + th * 0.27);
+      ctx.font = `600 ${u * 2.4}px ${FONT}`;
+      ctx.fillText(overallLocked ? "OVERALL" : "READING…", W / 2, ty + th * 0.2);
       ctx.fillStyle = color;
       ctx.globalAlpha = tGrow * (overallLocked ? 1 : 0.55);
-      ctx.font = `800 ${u * (7.6 + pop * 1.5)}px ${FONT}`;
-      ctx.fillText(String(overallVal), W / 2, ty + th * 0.64);
+      ctx.font = `800 ${u * (7.2 + pop * 1.5)}px ${FONT}`;
+      ctx.fillText(String(overallVal), W / 2, ty + th * 0.52);
+      ctx.globalAlpha = tGrow * (overallLocked ? 0.9 : 0.4);
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = `600 ${u * 2.4}px ${FONT}`;
+      ctx.fillText(overallLocked ? formatPsl(overallVal) : "PSL –", W / 2, ty + th * 0.83);
       ctx.restore();
     };
     raf = requestAnimationFrame(draw);
@@ -330,7 +334,7 @@ export function ScanOverlay({
   const px = points ? points.map((p) => ({ x: p.x * W, y: p.y * H })) : null;
   const L = px ? layoutOverlay(px, W, H) : null;
   const u = L?.unit ?? Math.min(W, H) / 100;
-  const T = L?.total ?? { x: W / 2 - u * 15, y: u * 5, w: u * 30, h: u * 15 };
+  const T = L?.total ?? { x: W / 2 - u * 15, y: u * 5, w: u * 30, h: u * 18 };
 
   return (
     <div className="relative w-full overflow-hidden rounded-[22px] bg-black">
@@ -398,11 +402,14 @@ export function ScanOverlay({
         <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.4 }}>
           <rect x={T.x} y={T.y} width={T.w} height={T.h} rx={T.h / 2} fill="rgba(0,0,0,0.6)" />
           <rect x={T.x} y={T.y} width={T.w} height={T.h} rx={T.h / 2} fill="none" stroke={color} strokeOpacity="0.85" strokeWidth={u * 0.28} />
-          <text x={W / 2} y={T.y + T.h * 0.27} dominantBaseline="central" textAnchor="middle" fontSize={u * 2.5} fontWeight={600} fill="#fff" fillOpacity="0.8" fontFamily={FONT} letterSpacing={u * 0.15}>
+          <text x={W / 2} y={T.y + T.h * 0.2} dominantBaseline="central" textAnchor="middle" fontSize={u * 2.4} fontWeight={600} fill="#fff" fillOpacity="0.8" fontFamily={FONT} letterSpacing={u * 0.15}>
             OVERALL
           </text>
-          <text x={W / 2} y={T.y + T.h * 0.64} dominantBaseline="central" textAnchor="middle" fontSize={u * 7.6} fontWeight={800} fill={color} fontFamily={FONT}>
+          <text x={W / 2} y={T.y + T.h * 0.52} dominantBaseline="central" textAnchor="middle" fontSize={u * 7.2} fontWeight={800} fill={color} fontFamily={FONT}>
             {overall}
+          </text>
+          <text x={W / 2} y={T.y + T.h * 0.83} dominantBaseline="central" textAnchor="middle" fontSize={u * 2.4} fontWeight={600} fill="#fff" fillOpacity="0.9" fontFamily={FONT}>
+            {formatPsl(overall)}
           </text>
         </motion.g>
       </svg>

@@ -115,6 +115,7 @@ export function toPublic(p: StoredProfile, rank: number | null, online: boolean)
     overall: p.score?.overall ?? null,
     traits: p.score ? normalizeTraits(p.score.traits) : null,
     headline: p.score?.headline ?? null,
+    sex: p.score?.sex ?? null,
     rank,
     online
   };
@@ -128,9 +129,12 @@ export function toPublic(p: StoredProfile, rank: number | null, online: boolean)
 export function addReading(
   p: StoredProfile,
   reading: Reading,
-  text: Pick<Score, "headline" | "strengths" | "improvements" | "confidence">
+  text: Pick<Score, "headline" | "strengths" | "improvements" | "confidence"> & { sex?: Score["sex"] }
 ) {
-  p.readings = [...p.readings, reading].slice(-MAX_READINGS);
+  // Readings made on an older scoring scale aren't comparable — drop them
+  // once a reading on the current scale arrives.
+  const v = reading.v ?? 1;
+  p.readings = [...p.readings.filter((r) => (r.v ?? 1) === v), reading].slice(-MAX_READINGS);
   const n = p.readings.length;
   const mean = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length));
   // Per trait, prefer readings that measured it natively; only fall back to
@@ -146,7 +150,8 @@ export function addReading(
     traits,
     readings: n,
     updatedAt: reading.at,
-    ...text
+    ...text,
+    sex: text.sex ?? p.score?.sex
   };
 }
 

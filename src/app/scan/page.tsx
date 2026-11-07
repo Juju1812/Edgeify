@@ -7,7 +7,7 @@ import { api, ApiError } from "@/lib/client/api";
 import { captureFaceBurst, grabMirroredFrame, grabThumb, useCamera } from "@/lib/client/camera";
 import { useFaceTracker, type Pt } from "@/lib/client/face-mesh";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
-import { DEFAULT_OVERLAY_COLOR, type MeProfile, type Traits } from "@/lib/shared/types";
+import { DEFAULT_OVERLAY_COLOR, formatPsl, type MeProfile, type Sex, type Traits } from "@/lib/shared/types";
 import { LiveScanOverlay, REVEAL_TOTAL_MS, ScanOverlay, type LiveMode } from "@/components/face-overlay";
 import { RatiosCard } from "@/components/ratios-card";
 import type { Ratios } from "@/lib/shared/ratios";
@@ -23,6 +23,8 @@ type Reading = {
   confidence: "low" | "medium" | "high";
   ratios: Ratios | null;
   ratioScore: number | null;
+  psl: number;
+  sex: Sex;
 };
 
 type Snapshot = { url: string; width: number; height: number; points: Pt[] | null };
@@ -290,7 +292,9 @@ function Result({
                 wide ? "md:px-6 md:pb-6" : "md:flex-1 md:px-0 md:pb-0 md:pr-6 md:text-left"
               )}
             >
-              <p className="eyebrow">{tierLabel(reading.overall)}</p>
+              <p className="eyebrow">
+                {tierLabel(reading.overall, reading.sex)} · {formatPsl(reading.overall)}
+              </p>
               <h1 className="display mt-2 text-[30px] leading-[1.1] md:text-[38px]">{reading.headline}</h1>
               {multiple && avg && (
                 <p className="mt-3 text-[15px] text-ink-3">

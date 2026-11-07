@@ -6,6 +6,7 @@ import { parseFrames, scoreFramesOrExplain, UNUSABLE_MESSAGES } from "@/lib/serv
 import { redis, K } from "@/lib/server/redis";
 import { fileReport } from "@/lib/server/safety";
 import { sanitizeRatios } from "@/lib/shared/ratios";
+import { SCORE_SCALE_VERSION } from "@/lib/shared/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +38,12 @@ export const POST = handle(async (req: Request) => {
   }
 
   const p = await getProfile(u);
-  const { overall, traits, headline, strengths, improvements, confidence } = result.score;
-  addReading(p, { overall, traits, at: Date.now(), source: "scan" }, { headline, strengths, improvements, confidence });
+  const { overall, traits, headline, strengths, improvements, confidence, sex } = result.score;
+  addReading(
+    p,
+    { overall, traits, at: Date.now(), source: "scan", v: SCORE_SCALE_VERSION },
+    { headline, strengths, improvements, confidence, sex }
+  );
   if (p.score) {
     p.score.ratios = result.score.ratios;
     p.score.ratioScore = result.score.ratioScore;

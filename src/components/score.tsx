@@ -2,14 +2,14 @@
 
 import { clsx } from "clsx";
 import { motion } from "framer-motion";
-import { TRAIT_KEYS, TRAIT_LABELS, type Traits } from "@/lib/shared/types";
+import { formatPsl, tierName, TRAIT_KEYS, TRAIT_LABELS, type Sex, type Traits } from "@/lib/shared/types";
 
-/** The big score ring from the "Light" mockup. */
+/** The big score ring from the "Light" mockup. Shows the PSL under the number. */
 export function ScoreRing({
   value,
   size = 260,
   stroke,
-  label = "out of 100",
+  label,
   animate = true,
   muted
 }: {
@@ -46,9 +46,9 @@ export function ScoreRing({
         <span className="font-bold tracking-tightest text-ink" style={{ fontSize: size * 0.3, lineHeight: 1 }}>
           {value === null ? "–" : value}
         </span>
-        {label && (
-          <span className="mt-1 text-ink-3" style={{ fontSize: Math.max(12, size * 0.068) }}>
-            {label}
+        {(label ?? (value !== null ? formatPsl(value) : "")) && (
+          <span className="mt-1 font-medium text-ink-3" style={{ fontSize: Math.max(12, size * 0.068) }}>
+            {label ?? (value !== null ? formatPsl(value) : "")}
           </span>
         )}
       </div>
@@ -103,11 +103,7 @@ export function TraitBars({
   );
 }
 
-export function tierLabel(overall: number) {
-  if (overall >= 85) return "Elite";
-  if (overall >= 75) return "Striking";
-  if (overall >= 65) return "Attractive";
-  if (overall >= 56) return "Above average";
-  if (overall >= 45) return "Average";
-  return "Below average";
+/** Community tier for a score, e.g. "HTN" (the ring shows the PSL itself). */
+export function tierLabel(overall: number, sex?: Sex | null) {
+  return tierName(overall, sex);
 }

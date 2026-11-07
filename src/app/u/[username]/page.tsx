@@ -196,7 +196,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
               <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
                 <ScoreRing value={user.overall} size={200} />
                 <div className="text-center sm:text-left">
-                  <p className="eyebrow">{tierLabel(user.overall)}</p>
+                  <p className="eyebrow">{tierLabel(user.overall, user.sex)}</p>
                   {user.headline && (
                     <p className="display mt-2 text-[24px] leading-[1.15] sm:text-[28px]">{user.headline}</p>
                   )}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
-import type { LeaderboardRow, MeProfile } from "@/lib/shared/types";
+import { formatPsl, type LeaderboardRow, type MeProfile } from "@/lib/shared/types";
 import { Avatar, ButtonLink, Card, Spinner } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 import { Logo } from "@/components/nav";
@@ -42,7 +42,9 @@ function Dashboard({ me }: { me: MeProfile }) {
           <div className="flex flex-col items-center gap-8 md:flex-row md:gap-14">
             <ScoreRing value={s.overall} size={224} />
             <div className="text-center md:text-left">
-              <p className="eyebrow">Your score · {tierLabel(s.overall)}</p>
+              <p className="eyebrow">
+                Your score · {tierLabel(s.overall, s.sex)} · {formatPsl(s.overall)}
+              </p>
               <h2 className="display mt-2 text-[30px] leading-[1.1] md:text-[44px]">{s.headline}</h2>
               <p className="mt-3 text-[16px] text-ink-3">
                 Based on {s.readings} {s.readings === 1 ? "reading" : "readings"}
