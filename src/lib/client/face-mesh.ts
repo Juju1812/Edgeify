@@ -128,11 +128,14 @@ export const DOT_INDICES = [
  * (selfie) view: the subject's left side appears on the image's left.
  */
 export const TRAIT_ANCHORS = {
+  // left side of the photo (subject's left)
   hair: { i: 109, side: "left" }, // upper forehead / hairline
   eyes: { i: 263, side: "left" }, // left eye outer corner
-  structure: { i: 345, side: "left" }, // left cheekbone
+  cheekbones: { i: 345, side: "left" }, // left cheekbone
   jaw: { i: 397, side: "left" }, // left jaw angle
-  harmony: { i: 168, side: "right" }, // bridge of the nose
+  // right side of the photo
+  symmetry: { i: 168, side: "right" }, // bridge of the nose — the midline
+  proportions: { i: 4, side: "right" }, // nose tip
   skin: { i: 205, side: "right" }, // right cheek
-  presentation: { i: 61, side: "right" } // mouth corner (grooming)
+  leanness: { i: 172, side: "right" } // right lower face / jaw
 } as const;

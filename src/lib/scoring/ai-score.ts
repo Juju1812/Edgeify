@@ -1,16 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
+import { TRAIT_KEYS, type TraitKey } from "../shared/types";
 
 /**
  * Server-side face scoring with Claude vision.
  *
- * Replaces the old 68-landmark geometry score (src/lib/edge-score.ts), which
- * only saw dots and squashed nearly everyone into 50-60. Here the model looks
- * at the actual photos and rates against a fixed, population-anchored rubric.
+ * Replaces the old 68-landmark geometry score, which only saw dots and
+ * squashed nearly everyone into 50-60. The model looks at the actual frames
+ * (tight crops around the face) and rates against a fixed, population-
+ * anchored rubric.
  */
-
-import { TRAIT_KEYS, type TraitKey } from "../shared/types";
 
 export const SCORE_MODEL = "claude-opus-5-5";
 
@@ -28,14 +28,17 @@ export type UnusableReason = (typeof UNUSABLE_REASONS)[number];
 const ScoreSchema = z.object({
   usable: z.boolean(),
   unusable_reason: z.enum([...UNUSABLE_REASONS, "none"]),
+  /** One sentence on why, when unusable — logged for debugging false rejects. */
+  gate_note: z.string(),
   traits: z.object({
-    harmony: z.number(),
-    eyes: z.number(),
+    symmetry: z.number(),
+    proportions: z.number(),
     jaw: z.number(),
-    structure: z.number(),
+    cheekbones: z.number(),
+    eyes: z.number(),
+    leanness: z.number(),
     skin: z.number(),
-    hair: z.number(),
-    presentation: z.number()
+    hair: z.number()
   }),
   overall: z.number(),
   confidence: z.enum(["low", "medium", "high"]),
@@ -55,49 +58,52 @@ export type AiScore = {
 
 export type ScoreResult =
   | { ok: true; score: AiScore; model: string; usage: { input: number; output: number } }
-  | { ok: false; reason: UnusableReason | "refused" | "parse_failed" };
+  | { ok: false; reason: UnusableReason | "refused" | "parse_failed"; note?: string };
 
 // Frozen system prompt — keep byte-stable so it can be cached.
 const SYSTEM_PROMPT = `You are the scoring engine for Edgify, an opt-in entertainment app where adults scan their own face with their webcam and compete on a looks score. Users choose to be rated and expect a candid, accurate number — inflated or compressed scores ruin the game.
 
 Every user has confirmed at signup that they are 18 or older. Do not try to estimate age or refuse anyone for looking young — many adults have youthful faces, and judging age from a webcam frame is unreliable.
 
-You will receive several webcam frames of ONE person taken seconds apart. Judge the person, not the photo: look past webcam softness, mild noise and ordinary indoor lighting the way a person looking at the screen would.
+You will receive several webcam frames of ONE person taken a fraction of a second apart, cropped around the face. Judge the person, not the photo quality.
 
-## Gate first
-Set usable=false (and overall/traits to 0) if any of these apply, choosing the most relevant reason:
-- no_face: no human face visible
+## Gate first — be lenient
+Refusing a scan is a bad experience, so only set usable=false when a reason CLEARLY applies. Webcam frames are naturally soft, a little noisy, compressed and lit by ordinary room light — that is normal and NEVER a reason to refuse. If you can make out the eyes, nose, mouth and jawline in at least one frame, the scan is usable: score it and use confidence="low" if quality is poor.
+Reasons (choose the single most relevant, and explain in gate_note):
+- no_face: no human face visible in any frame
 - multiple_faces: more than one person is prominent
-- face_obstructed: sunglasses, mask, hand, heavy filter or most of the face cut off
-- too_dark_or_blurry: too dark, blown out or blurred to judge features
-- bad_angle: face turned so far that both eyes and the jaw are not clearly visible
-- not_a_live_photo: it is clearly a photo of a screen/printout, a drawing, or an AI render
-- explicit_content: visible genitals, exposed female nipples, sexual acts or sexual gestures, or an obscene gesture/object held up to the camera. (A shirtless man or a low neckline alone is NOT explicit.) This check matters most — these frames come from live video calls with strangers.
-Otherwise usable=true and unusable_reason="none".
+- face_obstructed: sunglasses, a mask or a hand covers the eyes or most of the face
+- too_dark_or_blurry: so dark, blown out or smeared that the facial features genuinely cannot be made out in ANY frame
+- bad_angle: turned so far away that both eyes are not visible
+- not_a_live_photo: obviously a photo of a phone/monitor screen or a printout held up to the camera
+- explicit_content: visible genitals, exposed female nipples, sexual acts or sexual gestures, or an obscene gesture/object held up to the camera. (A shirtless man or a low neckline alone is NOT explicit.)
+When usable=true: unusable_reason="none" and gate_note="".
+When usable=false: set overall and all traits to 0.
 
-## Scale (overall and every trait, integers 0-100)
-The scale is anchored to the general adult population, not to models:
+## Scale (overall and every trait, integers 0-100, higher is always better)
+Anchored to the general adult population, not to models:
 - 50 = exactly average. Half of adults are above, half below.
 - 60 = noticeably above average (top ~25%).
 - 70 = clearly attractive; strangers would agree (top ~10%).
 - 80 = striking, very rare in everyday life (top ~2%).
 - 90+ = elite model/celebrity tier (top ~0.1%). Almost never give this.
 - 40 = noticeably below average; 30 and below = well below.
-USE THE WHOLE RANGE. Do not hug 50-65 out of politeness — a clearly attractive person must land clearly above an average one. Separation between people is the entire point of the game.
+USE THE WHOLE RANGE. Do not hug 50-65 out of politeness — a clearly attractive person must land clearly above an average one. Separation between people is the entire point of the game. Score each trait on its own merits; they should not all be the same number.
 
 ## Traits
-- harmony: overall balance, proportions, symmetry, how well features fit together
-- eyes: eye shape, spacing, canthal tilt, brows, under-eye area
-- jaw: jawline definition, chin projection, lower-face leanness
-- structure: cheekbones, midface, overall bone structure and facial leanness
-- skin: clarity, texture, evenness (ignore webcam grain)
-- hair: density, hairline, how well the style suits the face (if not visible, judge as 50)
-- presentation: grooming, brows, facial hair, expression and how they carry themselves on camera
+- symmetry: how closely the left and right halves mirror each other — eyes, brows, cheeks, jaw, mouth. Discount small differences caused by a slight head turn or uneven lighting.
+- proportions: facial thirds, eye spacing, nose and mouth size relative to the face — how well the features fit together.
+- jaw: jawline definition and angularity, chin projection and shape.
+- cheekbones: cheekbone height and prominence, midface structure.
+- eyes: eye shape, spacing, canthal tilt, brows, under-eye area.
+- leanness: facial leanness — how little soft tissue / facial fat there is. 100 = very lean, sculpted face; 50 = average; low = full, round or puffy face, soft or double chin.
+- skin: clarity, texture, evenness (ignore webcam grain and compression).
+- hair: density, hairline, how well the style suits the face (judge 50 if not visible).
 
-overall is your holistic judgment of attractiveness — NOT an average of the traits. Structure, harmony, eyes and jaw matter most; skin moderately; hair and presentation least. Judge attractiveness for the person's apparent sex using broadly shared standards.
+overall is your holistic judgment of attractiveness — NOT an average of the traits. Bone structure (jaw, cheekbones), proportions, symmetry, eyes and leanness matter most; skin moderately; hair least. Judge attractiveness for the person's apparent sex using broadly shared standards.
 
 ## Text fields
-- headline: 3-7 words, punchy, written like an Apple tagline and specific to this face — e.g. "Strong harmony. Clear presence." or "Sharp jaw, soft eyes." Confident, never insulting.
+- headline: 3-7 words, punchy, written like an Apple tagline and specific to this face — e.g. "Sharp jaw. Clear presence." Confident, never insulting.
 - strengths: exactly 3 short, specific observations.
 - improvements: exactly 3 realistic, actionable tips (grooming, hair, skin care, lighting, posture, camera angle). Nothing surgical, no weight-loss advice.
 - confidence: how sure you are given image quality.
@@ -132,13 +138,12 @@ export async function scoreFace(frames: Frame[], client = new Anthropic()): Prom
   const out = response.parsed_output;
   if (!out) return { ok: false, reason: "parse_failed" };
   if (!out.usable) {
-    const reason = out.unusable_reason === "none" ? "too_dark_or_blurry" : out.unusable_reason;
-    return { ok: false, reason };
+    // usable=false without a reason is contradictory — treat as a hiccup, not "too dark".
+    if (out.unusable_reason === "none") return { ok: false, reason: "parse_failed", note: out.gate_note };
+    return { ok: false, reason: out.unusable_reason, note: out.gate_note.slice(0, 300) };
   }
 
-  const traits = Object.fromEntries(
-    TRAIT_KEYS.map((k) => [k, clampInt(out.traits[k])])
-  ) as Record<TraitKey, number>;
+  const traits = Object.fromEntries(TRAIT_KEYS.map((k) => [k, clampInt(out.traits[k])])) as Record<TraitKey, number>;
 
   return {
     ok: true,

@@ -67,7 +67,7 @@ function Dashboard({ me }: { me: MeProfile }) {
               <p className="eyebrow">Step one</p>
               <h2 className="display mt-2 text-[30px] leading-[1.1] md:text-[44px]">Scan your face.</h2>
               <p className="mt-3 max-w-md text-[16px] text-ink-3">
-                Our AI rates your harmony, eyes, jaw, structure, skin, hair and grooming — honestly — in about ten seconds.
+                Our AI rates your symmetry, proportions, jawline, cheekbones, eyes, leanness, skin and hair — honestly — in about ten seconds.
               </p>
               <div className="mt-6 flex justify-center md:justify-start">
                 <ButtonLink href="/scan" size="lg">
@@ -87,7 +87,7 @@ function Dashboard({ me }: { me: MeProfile }) {
               <TraitBars traits={s.traits} />
             </div>
           ) : (
-            <p className="mt-3 text-[15px] text-ink-3">Your seven trait scores appear here after your first scan.</p>
+            <p className="mt-3 text-[15px] text-ink-3">Your eight trait scores appear here after your first scan.</p>
           )}
         </Card>
 
@@ -157,7 +157,7 @@ function Landing() {
               <div className="mt-5">
                 <TraitBars
                   compact
-                  traits={{ harmony: 82, eyes: 80, jaw: 72, structure: 76, skin: 70, hair: 73, presentation: 68 }}
+                  traits={{ symmetry: 81, proportions: 78, jaw: 72, cheekbones: 76, eyes: 80, leanness: 74, skin: 70, hair: 73 }}
                 />
               </div>
             </div>
@@ -167,7 +167,7 @@ function Landing() {
 
       <section className="mx-auto mt-5 grid max-w-[920px] gap-5 md:grid-cols-3">
         {[
-          ["Scan", "Three quick frames from your webcam. The AI reads seven traits and gives you a 0–100 score."],
+          ["Scan", "A few quick frames from your webcam. The AI reads eight traits and gives you a 0–100 score."],
           ["Face off", "Get matched with someone near your level. Both faces are scored live — higher score wins."],
           ["Climb", "Win to gain ELO and rise up the global leaderboard. Challenge friends in private rooms."]
         ].map(([t, b], i) => (

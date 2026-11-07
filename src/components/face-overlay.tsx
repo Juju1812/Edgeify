@@ -8,7 +8,7 @@ import { DEFAULT_OVERLAY_COLOR, TRAIT_KEYS, TRAIT_LABELS, type TraitKey, type Tr
 const FONT = "-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif";
 
 /** Compact names so chips stay small on the face. */
-const SHORT_LABELS: Record<TraitKey, string> = { ...TRAIT_LABELS, structure: "Structure", jaw: "Jaw" };
+const SHORT_LABELS: Record<TraitKey, string> = { ...TRAIT_LABELS, jaw: "Jaw" };
 
 // ─── Shared layout ─────────────────────────────────────────────────────
 

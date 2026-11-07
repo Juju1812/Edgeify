@@ -39,7 +39,7 @@ export function MatchResult({ match }: { match: MatchView }) {
             : "Not this time — check your easy wins and go again."
           : iWon
             ? "A decisive win."
-            : "A tough draw. Better light and a fresh scan help.";
+            : "Tough one. Check your easy wins and run it back.";
 
   const elo = result?.elo?.[me];
   const playAgain =

@@ -2,6 +2,7 @@ import "server-only";
 import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import {
+  normalizeTraits,
   DEFAULT_OVERLAY_COLOR,
   PLACEMENT_MATCHES,
   START_ELO,
@@ -93,7 +94,11 @@ export async function syncLeaderboard(p: StoredProfile) {
 export function toMe(p: StoredProfile): MeProfile {
   const { readings: _r, ...me } = p;
   // Profiles created before a field existed get its default.
-  return { ...me, overlayColor: me.overlayColor || DEFAULT_OVERLAY_COLOR };
+  return {
+    ...me,
+    overlayColor: me.overlayColor || DEFAULT_OVERLAY_COLOR,
+    score: me.score ? { ...me.score, traits: normalizeTraits(me.score.traits) } : null
+  };
 }
 
 export function toPublic(p: StoredProfile, rank: number | null, online: boolean): PublicProfile {
@@ -108,7 +113,7 @@ export function toPublic(p: StoredProfile, rank: number | null, online: boolean)
     country: p.country,
     hasFace: p.hasFace,
     overall: p.score?.overall ?? null,
-    traits: p.score?.traits ?? null,
+    traits: p.score ? normalizeTraits(p.score.traits) : null,
     headline: p.score?.headline ?? null,
     rank,
     online
@@ -127,10 +132,17 @@ export function addReading(
 ) {
   p.readings = [...p.readings, reading].slice(-MAX_READINGS);
   const n = p.readings.length;
-  const avg = (f: (r: Reading) => number) => Math.round(p.readings.reduce((s, r) => s + f(r), 0) / n);
-  const traits = Object.fromEntries(TRAIT_KEYS.map((k) => [k, avg((r) => r.traits[k])])) as Traits;
+  const mean = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length));
+  // Per trait, prefer readings that measured it natively; only fall back to
+  // values mapped from the old categories when none did.
+  const traits = Object.fromEntries(
+    TRAIT_KEYS.map((k) => {
+      const native = p.readings.map((r) => (r.traits as Record<string, number>)[k]).filter((v) => typeof v === "number");
+      return [k, native.length ? mean(native) : mean(p.readings.map((r) => normalizeTraits(r.traits)[k]))];
+    })
+  ) as Traits;
   p.score = {
-    overall: avg((r) => r.overall),
+    overall: mean(p.readings.map((r) => r.overall)),
     traits,
     readings: n,
     updatedAt: reading.at,

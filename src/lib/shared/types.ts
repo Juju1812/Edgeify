@@ -1,27 +1,52 @@
 /** Types shared between server routes and client components. */
 
 export const TRAIT_KEYS = [
-  "harmony",
-  "eyes",
+  "symmetry",
+  "proportions",
   "jaw",
-  "structure",
+  "cheekbones",
+  "eyes",
+  "leanness",
   "skin",
-  "hair",
-  "presentation"
+  "hair"
 ] as const;
 export type TraitKey = (typeof TRAIT_KEYS)[number];
 
 export const TRAIT_LABELS: Record<TraitKey, string> = {
-  harmony: "Harmony",
+  symmetry: "Symmetry",
+  proportions: "Proportions",
+  jaw: "Jawline",
+  cheekbones: "Cheekbones",
   eyes: "Eyes",
-  jaw: "Jaw & chin",
-  structure: "Bone structure",
+  leanness: "Leanness",
   skin: "Skin",
-  hair: "Hair",
-  presentation: "Grooming"
+  hair: "Hair"
 };
 
 export type Traits = Record<TraitKey, number>;
+
+/**
+ * Readings saved before the 8-category update used harmony / structure /
+ * presentation. Map them onto the new keys so old scores still display and
+ * average cleanly until the player rescans.
+ */
+export function normalizeTraits(t: Partial<Record<string, number>> | null | undefined): Traits {
+  const src = t || {};
+  const pick = (...keys: string[]) => {
+    for (const k of keys) if (typeof src[k] === "number") return src[k] as number;
+    return 50;
+  };
+  return {
+    symmetry: pick("symmetry", "harmony"),
+    proportions: pick("proportions", "harmony"),
+    jaw: pick("jaw"),
+    cheekbones: pick("cheekbones", "structure"),
+    eyes: pick("eyes"),
+    leanness: pick("leanness", "structure", "jaw"),
+    skin: pick("skin"),
+    hair: pick("hair")
+  };
+}
 
 export type Reading = {
   overall: number;

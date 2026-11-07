@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
-import { captureBurst, grabMirroredFrame, grabThumb, useCamera } from "@/lib/client/camera";
+import { captureFaceBurst, grabMirroredFrame, grabThumb, useCamera } from "@/lib/client/camera";
 import { useFaceTracker, type Pt } from "@/lib/client/face-mesh";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
 import { DEFAULT_OVERLAY_COLOR, type MeProfile, type Traits } from "@/lib/shared/types";
@@ -72,7 +72,7 @@ export default function ScanPage() {
     }
     const pts = tracker.landmarks.current ? [...tracker.landmarks.current] : null;
     const still = grabMirroredFrame(video);
-    const frames = await captureBurst(video, 3, 500);
+    const frames = await captureFaceBurst(video, () => tracker.landmarks.current, 5, 280);
     const thumb = grabThumb(video);
     setPhase({ k: "analyzing" });
     try {
@@ -232,7 +232,7 @@ export default function ScanPage() {
               </motion.div>
             )}
             <p className="text-center text-[13px] text-ink-4">
-              Three frames are sent to our AI to score, then discarded. A small thumbnail becomes your profile photo.
+              Five frames are sent to our AI to score, then discarded. A small thumbnail becomes your profile photo.
             </p>
           </div>
         </Card>

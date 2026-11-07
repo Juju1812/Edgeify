@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
-import { captureBurst, useCamera } from "@/lib/client/camera";
+import { captureFaceBurst, useCamera } from "@/lib/client/camera";
+import { useFaceTracker } from "@/lib/client/face-mesh";
 import { connectMatch, type RtcHandle, type RtcState } from "@/lib/client/rtc";
 import type { MatchView } from "@/lib/shared/match-types";
 import { Button, ButtonLink, Spinner } from "@/components/ui";
@@ -31,6 +32,8 @@ export default function MatchPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { me, refresh } = useRequireSignIn();
   const cam = useCamera({ audio: true });
+  // Landmarks only — used to crop frames tightly around the face for scoring.
+  const tracker = useFaceTracker(cam.videoRef, cam.state === "live");
 
   const [match, setMatch] = useState<MatchView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -155,7 +158,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     const v = cam.videoRef.current;
     setPhase("capturing");
     setCaptureMsg(null);
-    const frames = v ? await captureBurst(v, 3, 400) : [];
+    const frames = v ? await captureFaceBurst(v, () => tracker.landmarks.current, 5, 280) : [];
     if (!frames.length) {
       setCaptureMsg("Waiting for your camera…");
       setPhase("retry");
@@ -188,7 +191,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
         setTimeout(() => setPhase("idle"), 2500);
       }
     }
-  }, [cam.videoRef, id, apply]);
+  }, [cam.videoRef, tracker.landmarks, id, apply]);
 
   useEffect(() => {
     if (!live || remaining === null || remaining > 0 || phase !== "idle" || myScore?.ok) return;

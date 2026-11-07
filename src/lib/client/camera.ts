@@ -114,6 +114,63 @@ export function grabThumb(video: HTMLVideoElement, size = 320): string | null {
   return c.toDataURL("image/jpeg", 0.82);
 }
 
+/**
+ * A square crop around the face at full camera resolution — the AI sees far
+ * more detail than in a shrunken whole frame, where the face may only be a
+ * couple of hundred pixels wide. `pts` are mirrored normalized landmarks
+ * (as produced by useFaceTracker). Falls back to the whole frame.
+ */
+export function grabFaceCrop(video: HTMLVideoElement, pts: { x: number; y: number }[] | null, out = 768): string | null {
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if (!w || !h) return null;
+  if (!pts || pts.length < 100) return grabFrame(video, 1024, 0.9);
+
+  // Landmarks are mirrored for the preview; flip back to raw camera coords.
+  let minX = 1, maxX = 0, minY = 1, maxY = 0;
+  for (const p of pts) {
+    const x = 1 - p.x;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const fw = (maxX - minX) * w;
+  const fh = (maxY - minY) * h;
+  // Generous margin so hair, ears and jaw/neck are in frame.
+  const side = Math.min(Math.max(fw, fh) * 1.85, Math.min(w, h));
+  const cx = ((minX + maxX) / 2) * w;
+  const cy = ((minY + maxY) / 2) * h - fh * 0.08;
+  const sx = Math.max(0, Math.min(w - side, cx - side / 2));
+  const sy = Math.max(0, Math.min(h - side, cy - side / 2));
+
+  const size = Math.min(out, Math.round(side)); // never upscale
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
+  return c.toDataURL("image/jpeg", 0.9);
+}
+
+/** Capture `n` face crops spaced `gapMs` apart, using the live landmarks. */
+export async function captureFaceBurst(
+  video: HTMLVideoElement,
+  getPoints: () => { x: number; y: number }[] | null,
+  n = 5,
+  gapMs = 280
+): Promise<string[]> {
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const f = grabFaceCrop(video, getPoints());
+    if (f) out.push(f);
+    if (i < n - 1) await new Promise((r) => setTimeout(r, gapMs));
+  }
+  return out;
+}
+
 /** Capture `n` frames spaced `gapMs` apart. */
 export async function captureBurst(video: HTMLVideoElement, n = 3, gapMs = 450): Promise<string[]> {
   const out: string[] = [];
