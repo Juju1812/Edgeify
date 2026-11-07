@@ -13,7 +13,14 @@ const WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}/wa
 const MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
-export type Pt = { x: number; y: number };
+/** Normalized point. `z` is MediaPipe's relative depth (smaller = closer to the camera). */
+export type Pt = { x: number; y: number; z?: number };
+
+/**
+ * Triangle-mesh edges of the 468-point face (pairs of point indices), filled
+ * in once the tracker has loaded. Used to draw the overlay as a 3D surface.
+ */
+export let MESH_EDGES: Uint16Array | null = null;
 
 let loading: Promise<FaceLandmarker | null> | null = null;
 
@@ -22,6 +29,19 @@ export function loadFaceLandmarker(): Promise<FaceLandmarker | null> {
   loading = (async () => {
     try {
       const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+      if (!MESH_EDGES) {
+        const seen = new Set<number>();
+        const out: number[] = [];
+        for (const { start, end } of FaceLandmarker.FACE_LANDMARKS_TESSELATION) {
+          const a = Math.min(start, end);
+          const b = Math.max(start, end);
+          const key = a * 1000 + b;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(a, b);
+        }
+        MESH_EDGES = Uint16Array.from(out);
+      }
       const fileset = await FilesetResolver.forVisionTasks(WASM);
       const make = (delegate: "GPU" | "CPU") =>
         FaceLandmarker.createFromOptions(fileset, {
@@ -88,7 +108,7 @@ export function useFaceTracker(videoRef: React.RefObject<HTMLVideoElement | null
             try {
               const res = lm.detectForVideo(v, ts);
               const face: NormalizedLandmark[] | undefined = res.faceLandmarks[0];
-              landmarks.current = face ? face.map((p) => ({ x: 1 - p.x, y: p.y })) : null;
+              landmarks.current = face ? face.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) : null;
               const found = !!face;
               if (found !== lastFound) {
                 lastFound = found;

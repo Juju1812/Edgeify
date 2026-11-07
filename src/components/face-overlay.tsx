@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { DOT_INDICES, TRAIT_ANCHORS, type Pt } from "@/lib/client/face-mesh";
+import { DOT_INDICES, MESH_EDGES, TRAIT_ANCHORS, type Pt } from "@/lib/client/face-mesh";
 import { DEFAULT_OVERLAY_COLOR, formatPsl, TRAIT_KEYS, TRAIT_LABELS, type TraitKey, type Traits } from "@/lib/shared/types";
 
 const FONT = "-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif";
@@ -87,6 +87,135 @@ export function layoutOverlay(px: Pt[], W: number, H: number): OverlayLayout {
   return { unit, chipW, chipH, fs, callouts, total: { x: W / 2 - totalW / 2, y: totalY, w: totalW, h: totalH } };
 }
 
+// ─── 3D face mesh ──────────────────────────────────────────────────────
+// The full 468-point mesh, shaded by MediaPipe's per-point depth: points
+// nearer the camera are bigger and brighter, points curving away round the
+// sides shrink and fade, and faint triangle edges show the surface — so the
+// dots read as wrapped around the face instead of stuck on the screen.
+
+const MESH_N = 468;
+const LINE_BUCKETS = 4;
+
+/** Per mesh point: 0 = nearest the camera (nose tip) … 1 = farthest (face edge). */
+function depths(px: Pt[]): Float32Array {
+  const n = Math.min(MESH_N, px.length);
+  const t = new Float32Array(n);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const z = px[i].z;
+    if (z === undefined) continue;
+    if (z < lo) lo = z;
+    if (z > hi) hi = z;
+  }
+  const span = hi - lo;
+  for (let i = 0; i < n; i++) {
+    const z = px[i].z;
+    t[i] = z === undefined || !(span > 0) ? 0.35 : Math.pow((z - lo) / span, 0.85);
+  }
+  return t;
+}
+const dotScale = (t: number) => 1.3 - 0.75 * t;
+const dotAlpha = (t: number) => 1 - 0.72 * t;
+const lineAlpha = (t: number) => 0.34 - 0.28 * t;
+const meshDotR = (u: number) => Math.max(1.1, u * 0.36);
+
+/** Mesh edges grouped into depth buckets (so each bucket is one stroke). */
+function edgeBuckets(t: Float32Array): number[][] {
+  const out: number[][] = Array.from({ length: LINE_BUCKETS }, () => []);
+  const e = MESH_EDGES;
+  if (!e) return out;
+  for (let k = 0; k < e.length; k += 2) {
+    const a = e[k];
+    const b = e[k + 1];
+    if (a >= t.length || b >= t.length) continue;
+    const d = (t[a] + t[b]) / 2;
+    out[Math.min(LINE_BUCKETS - 1, Math.floor(d * LINE_BUCKETS))].push(a, b);
+  }
+  return out;
+}
+
+/**
+ * Which mesh points get a dot. The raw mesh bunches up around the lips, eyes
+ * and nostrils, so keep an evenly spaced subset (feature points first). It's
+ * picked once from the first frame and then reused, so dots don't flicker.
+ */
+let dotSet: number[] | null = null;
+function evenDots(px: Pt[]): number[] {
+  if (dotSet) return dotSet;
+  const fw = Math.hypot(px[454].x - px[234].x, px[454].y - px[234].y);
+  const min2 = (fw * 0.043) ** 2;
+  const order = [...DOT_INDICES, ...Array.from({ length: MESH_N }, (_, i) => i)];
+  const kept: number[] = [];
+  const seen = new Set<number>();
+  for (const i of order) {
+    if (seen.has(i)) continue;
+    seen.add(i);
+    const p = px[i];
+    if (kept.every((j) => (px[j].x - p.x) ** 2 + (px[j].y - p.y) ** 2 >= min2)) kept.push(i);
+  }
+  if (fw > 0) dotSet = kept;
+  return kept;
+}
+
+/** Dots drawn back-to-front so nearer ones sit on top. */
+function backToFront(px: Pt[], t: Float32Array): number[] {
+  return evenDots(px).slice().sort((a, b) => t[b] - t[a]);
+}
+
+/** A shaded "bead": soft dark halo, coloured core, highlight and rim — looks round on any colour. */
+function makeDotSprite(color: string, size = 48): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d")!;
+  const m = size / 2;
+  const core = size * SPRITE_CORE;
+  const halo = g.createRadialGradient(m, m, core * 0.6, m, m, m);
+  halo.addColorStop(0, "rgba(0,0,0,0.45)");
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = halo;
+  g.fillRect(0, 0, size, size);
+  g.beginPath();
+  g.arc(m, m, core, 0, Math.PI * 2);
+  g.fillStyle = color;
+  g.fill();
+  const shade = g.createRadialGradient(m - core * 0.35, m - core * 0.4, 0, m, m, core);
+  shade.addColorStop(0, "rgba(255,255,255,0.7)");
+  shade.addColorStop(0.45, "rgba(255,255,255,0)");
+  shade.addColorStop(1, "rgba(0,0,0,0.38)");
+  g.fillStyle = shade;
+  g.fill();
+  return c;
+}
+const SPRITE_CORE = 0.25;
+
+function drawMeshCanvas(ctx: CanvasRenderingContext2D, px: Pt[], u: number, color: string, sprite: HTMLCanvasElement) {
+  const t = depths(px);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.5, u * 0.11);
+  edgeBuckets(t).forEach((pairs, b) => {
+    if (!pairs.length) return;
+    ctx.beginPath();
+    for (let k = 0; k < pairs.length; k += 2) {
+      const a = px[pairs[k]];
+      const c = px[pairs[k + 1]];
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(c.x, c.y);
+    }
+    ctx.globalAlpha = lineAlpha((b + 0.5) / LINE_BUCKETS);
+    ctx.stroke();
+  });
+  const base = meshDotR(u);
+  for (const i of backToFront(px, t)) {
+    const p = px[i];
+    const S = (base * dotScale(t[i])) / SPRITE_CORE;
+    ctx.globalAlpha = dotAlpha(t[i]);
+    ctx.drawImage(sprite, p.x - S / 2, p.y - S / 2, S, S);
+  }
+  ctx.restore();
+}
+
 // ─── Live canvas overlay ───────────────────────────────────────────────
 
 export type LiveMode =
@@ -132,6 +261,7 @@ export function LiveScanOverlay({
   const smooth = useRef<Record<string, { x: number; y: number }>>({});
   const scramble = useRef<{ at: number; vals: Record<string, number> }>({ at: 0, vals: {} });
   const appearedAt = useRef<number | null>(null);
+  const sprite = useRef<{ color: string; img: HTMLCanvasElement } | null>(null);
 
   useEffect(() => {
     let raf = 0;
@@ -159,26 +289,15 @@ export function LiveScanOverlay({
       const dh = v.videoHeight * scale;
       const ox = (W - dw) / 2;
       const oy = (H - dh) / 2;
-      const px = norm.map((p) => ({ x: ox + p.x * dw, y: oy + p.y * dh }));
+      const px = norm.map((p) => ({ x: ox + p.x * dw, y: oy + p.y * dh, z: p.z }));
 
       const m = modeRef.current;
       const L = layoutOverlay(px, W, H);
       const u = L.unit;
 
-      // Dots
-      ctx.save();
-      ctx.fillStyle = color;
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 3;
-      const r = Math.max(1.6, u * 0.55);
-      for (const i of DOT_INDICES) {
-        const p = px[i];
-        if (!p) continue;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
+      // 3D mesh of dots
+      if (!sprite.current || sprite.current.color !== color) sprite.current = { color, img: makeDotSprite(color) };
+      drawMeshCanvas(ctx, px, u, color, sprite.current.img);
 
       if (m.k === "dots") {
         appearedAt.current = null;
@@ -350,10 +469,11 @@ export function ScanOverlay({
 }) {
   const W = width;
   const H = height;
-  const px = points ? points.map((p) => ({ x: p.x * W, y: p.y * H })) : null;
+  const px = points ? points.map((p) => ({ x: p.x * W, y: p.y * H, z: p.z })) : null;
   const L = px ? layoutOverlay(px, W, H) : null;
   const u = L?.unit ?? Math.min(W, H) / 100;
   const T = L?.total ?? { x: W / 2 - u * 15, y: u * 5, w: u * 30, h: u * 18 };
+  const mesh = px && px.length >= MESH_N ? stillMesh(px, u) : null;
 
   return (
     <div className="relative w-full overflow-hidden rounded-[22px] bg-black">
@@ -364,30 +484,37 @@ export function ScanOverlay({
             <stop offset="55%" stopColor="#000" stopOpacity="0" />
             <stop offset="100%" stopColor="#000" stopOpacity="0.45" />
           </radialGradient>
+          <radialGradient id="bead" cx="38%" cy="34%" r="66%">
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
+            <stop offset="45%" stopColor="#fff" stopOpacity="0" />
+            <stop offset="100%" stopColor="#000" stopOpacity="0.38" />
+          </radialGradient>
           <filter id="ds" x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="0" dy="0" stdDeviation={u * 0.35} floodColor="#000" floodOpacity="0.55" />
           </filter>
         </defs>
         <rect width={W} height={H} fill="url(#vig)" />
 
-        {px && (
+        {mesh && (
+          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1, duration: 0.5 }}>
+            {mesh.lines.map((d, n) =>
+              d ? (
+                <path key={n} d={d} fill="none" stroke={color} strokeWidth={Math.max(0.5, u * 0.11)} strokeOpacity={lineAlpha((n + 0.5) / LINE_BUCKETS)} />
+              ) : null
+            )}
+            <g filter="url(#ds)">
+              {mesh.dots.map(({ x, y, r, a }, n) => (
+                <g key={n} opacity={a}>
+                  <circle cx={x} cy={y} r={r} fill={color} />
+                  <circle cx={x} cy={y} r={r} fill="url(#bead)" />
+                </g>
+              ))}
+            </g>
+          </motion.g>
+        )}
+        {px && !mesh && (
           <g filter="url(#ds)">
-            {DOT_INDICES.map((i, n) => {
-              const p = px[i];
-              if (!p) return null;
-              return (
-                <motion.circle
-                  key={i}
-                  cx={p.x}
-                  cy={p.y}
-                  r={u * 0.62}
-                  fill={color}
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.1 + n * 0.006, duration: 0.3 }}
-                />
-              );
-            })}
+            {DOT_INDICES.map((i) => (px[i] ? <circle key={i} cx={px[i].x} cy={px[i].y} r={u * 0.62} fill={color} /> : null))}
           </g>
         )}
 
@@ -434,4 +561,22 @@ export function ScanOverlay({
       </svg>
     </div>
   );
+}
+
+/** Paths and dot list for the still SVG version of the 3D mesh. */
+function stillMesh(px: Pt[], u: number) {
+  const t = depths(px);
+  const f = (n: number) => n.toFixed(1);
+  const lines = edgeBuckets(t).map((pairs) => {
+    let d = "";
+    for (let k = 0; k < pairs.length; k += 2) {
+      const a = px[pairs[k]];
+      const c = px[pairs[k + 1]];
+      d += "M" + f(a.x) + " " + f(a.y) + "L" + f(c.x) + " " + f(c.y);
+    }
+    return d;
+  });
+  const base = meshDotR(u);
+  const dots = backToFront(px, t).map((i) => ({ x: px[i].x, y: px[i].y, r: base * dotScale(t[i]), a: dotAlpha(t[i]) }));
+  return { lines, dots };
 }
