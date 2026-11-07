@@ -15,18 +15,35 @@ export function useCamera(opts: { audio?: boolean } = {}) {
   const [state, setState] = useState<CameraState>("idle");
   const [stream, setStream] = useState<MediaStream | null>(null);
 
+  // Bumped by stop(); a start() that resolves after a stop() releases its stream.
+  const generation = useRef(0);
+
   const start = useCallback(async () => {
     if (streamRef.current) return streamRef.current;
     if (!navigator.mediaDevices?.getUserMedia) {
       setState("unavailable");
       return null;
     }
+    const gen = generation.current;
     setState("starting");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: opts.audio ? { echoCancellation: true, noiseSuppression: true } : false
-      });
+      const video = { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } };
+      let s: MediaStream;
+      try {
+        s = await navigator.mediaDevices.getUserMedia({
+          video,
+          audio: opts.audio ? { echoCancellation: true, noiseSuppression: true } : false
+        });
+      } catch (e) {
+        // The mic is optional: a missing or denied mic must not block the camera.
+        if (!opts.audio) throw e;
+        s = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      }
+      if (gen !== generation.current) {
+        // Page moved on while the camera was starting — don't leave it running.
+        s.getTracks().forEach((t) => t.stop());
+        return null;
+      }
       streamRef.current = s;
       setStream(s);
       if (videoRef.current) {
@@ -43,6 +60,7 @@ export function useCamera(opts: { audio?: boolean } = {}) {
   }, [opts.audio]);
 
   const stop = useCallback(() => {
+    generation.current++;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setStream(null);

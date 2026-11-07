@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { api } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
-import type { LeaderboardRow } from "@/lib/shared/types";
+import { formatPsl, type LeaderboardRow } from "@/lib/shared/types";
 import { Avatar, ButtonLink, Card, Empty, Flag, PageTitle } from "@/components/ui";
 
 export default function LeaderboardPage() {
@@ -90,7 +90,12 @@ export default function LeaderboardPage() {
                   {r.username} {r.country && <Flag code={r.country} />}
                 </span>
               </span>
-              <span className="text-right text-[16px] tabular-nums text-ink-2">{r.overall ?? "–"}</span>
+              <span className="flex flex-col items-end text-right leading-tight">
+                <span className="text-[16px] tabular-nums text-ink-2">{r.overall ?? "–"}</span>
+                {r.overall !== null && (
+                  <span className="text-[11px] tabular-nums text-ink-4">{formatPsl(r.overall)}</span>
+                )}
+              </span>
               <span className="hidden text-right text-[15px] tabular-nums text-ink-3 md:block">
                 {r.wins}–{r.losses}
               </span>

@@ -16,21 +16,25 @@ const REASONS = [
 
 /**
  * Bottom sheet on phones, centred dialog on desktop. Reports a player and
- * optionally blocks them. Pass matchId when reporting from inside a match.
+ * optionally blocks them. Pass matchId when reporting someone you played
+ * (it makes the report count), and `live` while that match is in progress.
  */
 export function ReportSheet({
   open,
   username,
   matchId,
+  live,
   onClose,
   onDone
 }: {
   open: boolean;
   username: string;
   matchId?: string;
+  live?: boolean;
   onClose: () => void;
-  onDone?: (r: { blocked: boolean; matchCancelled: boolean }) => void;
+  onDone?: (r: { blocked: boolean; matchCancelled: boolean; note: string | null }) => void;
 }) {
+  const [doneNote, setDoneNote] = useState<string | null>(null);
   const [reason, setReason] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(true);
@@ -45,6 +49,7 @@ export function ReportSheet({
       setAlsoBlock(true);
       setError(null);
       setSent(false);
+      setDoneNote(null);
     }
   }, [open]);
 
@@ -60,11 +65,12 @@ export function ReportSheet({
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ matchCancelled?: boolean }>("/api/report", {
+      const r = await api<{ matchCancelled?: boolean; note?: string }>("/api/report", {
         body: { username, reason, note, matchId, alsoBlock }
       });
       setSent(true);
-      onDone?.({ blocked: alsoBlock, matchCancelled: !!r.matchCancelled });
+      setDoneNote(r.note ?? null);
+      onDone?.({ blocked: alsoBlock, matchCancelled: !!r.matchCancelled, note: r.note ?? null });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't send the report. Try again.");
     } finally {
@@ -100,6 +106,7 @@ export function ReportSheet({
                 <p className="mt-1.5 text-[15px] text-ink-3">
                   {alsoBlock ? `You won't be matched with ${username} again.` : "We'll take a look."}
                 </p>
+                {doneNote && <p className="mt-3 text-[14px] text-warn">{doneNote}</p>}
                 <Button className="mt-6 w-full" onClick={onClose}>
                   Done
                 </Button>
@@ -108,7 +115,7 @@ export function ReportSheet({
               <>
                 <p className="text-[20px] font-semibold tracking-tight">Report {username}</p>
                 <p className="mt-1 text-[14px] text-ink-3">
-                  {matchId ? "Reporting ends this match right away, with no ELO lost." : "What's going on?"}
+                  {live ? "Reporting ends this match right away, with no ELO lost." : "What's going on?"}
                 </p>
                 <div className="mt-5 flex flex-col gap-2">
                   {REASONS.map((r) => (

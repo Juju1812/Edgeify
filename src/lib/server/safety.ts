@@ -48,10 +48,15 @@ export type Report = {
   at: number;
 };
 
-export async function fileReport(r: Report) {
-  await redis().lpush(K.reports, JSON.stringify(r));
+/**
+ * Log a report. Only `verified` reports — from someone who actually played a
+ * match against the target — count toward an automatic suspension, so a few
+ * throwaway accounts can't get anyone suspended.
+ */
+export async function fileReport(r: Report, verified = false) {
+  await redis().lpush(K.reports, JSON.stringify({ ...r, verified }));
   await redis().ltrim(K.reports, 0, 4999);
-  if (r.by === "system") return;
+  if (r.by === "system" || !verified) return;
 
   const key = K.reportedBy(r.target);
   await redis().sadd(key, lc(r.by));

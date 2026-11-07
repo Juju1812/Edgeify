@@ -51,7 +51,18 @@ export function loadFaceLandmarker(): Promise<FaceLandmarker | null> {
 export function useFaceTracker(videoRef: React.RefObject<HTMLVideoElement | null>, enabled: boolean) {
   const landmarks = useRef<Pt[] | null>(null);
   const [faceFound, setFaceFound] = useState(false);
-  const [ready, setReady] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [ready, setReadyState] = useState<"loading" | "ready" | "unavailable">("loading");
+  /** Same as `ready`, readable from async code without stale closures. */
+  const readyRef = useRef<"loading" | "ready" | "unavailable">("loading");
+  const setReady = (r: "loading" | "ready" | "unavailable") => {
+    readyRef.current = r;
+    setReadyState(r);
+  };
+
+  // Start downloading the model straight away, before the camera is even on.
+  useEffect(() => {
+    loadFaceLandmarker();
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -99,7 +110,7 @@ export function useFaceTracker(videoRef: React.RefObject<HTMLVideoElement | null
     };
   }, [enabled, videoRef]);
 
-  return { landmarks, faceFound, ready };
+  return { landmarks, faceFound, ready, readyRef };
 }
 
 // ─── Which mesh points to draw ───────────────────────────────────────────

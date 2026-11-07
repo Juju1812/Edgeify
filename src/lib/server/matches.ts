@@ -124,9 +124,29 @@ async function tick(m: Match, now = Date.now()): Promise<boolean> {
   return false;
 }
 
-async function cancel(m: Match) {
+/**
+ * Call a match off. A tournament match can't simply vanish — the bracket
+ * would stall — so it's decided instead: `preferred` if given, else whoever
+ * got scored, else whoever showed up, else a coin flip.
+ */
+async function cancel(m: Match, preferred?: string) {
+  if (m.kind === "tourney" && m.tourney) {
+    const [a, b] = m.players;
+    const scored = m.players.find((p) => m.scores[lc(p)]?.ok);
+    const readied = m.ready.length === 1 ? m.players.find((p) => m.ready.includes(lc(p))) : undefined;
+    const winner = preferred ?? scored ?? readied ?? (Math.random() < 0.5 ? a : b);
+    await finalize(m, winner, "forfeit");
+    return;
+  }
   m.state = "cancelled";
   await releasePlayers(m);
+}
+
+function isDue(m: Match, now = Date.now()) {
+  return (
+    (m.state === "connecting" && now - m.createdAt > CONNECT_WINDOW_MS) ||
+    (m.state === "live" && !!m.startAt && now > m.startAt + CAPTURE_WINDOW_MS)
+  );
 }
 
 async function releasePlayers(m: Match) {
@@ -217,14 +237,15 @@ export async function claimAttempt(id: string, me: string) {
 export async function cancelForReport(id: string, reporter: string) {
   return withMatch(id, async (m) => {
     if (!isPlayer(m, reporter)) throw new HttpError(403, "not_your_match");
-    if (m.state === "connecting" || m.state === "live") await cancel(m);
+    // In a tournament the reporter advances; elsewhere nobody wins or loses.
+    if (m.state === "connecting" || m.state === "live") await cancel(m, m.players.find((p) => lc(p) === lc(reporter)));
   });
 }
 
 export async function leaveMatch(id: string, me: string) {
   return withMatch(id, async (m) => {
     if (!isPlayer(m, me)) throw new HttpError(403, "not_your_match");
-    if (m.state === "connecting") await cancel(m);
+    if (m.state === "connecting") await cancel(m, other(m, me));
     else if (m.state === "live") await finalize(m, other(m, me), "forfeit");
   });
 }
@@ -245,7 +266,9 @@ async function finalize(m: Match, forcedWinner: string | null, reason: MatchResu
     const ob = sb?.ok ? sb.overall : -1;
     if (oa !== ob) winner = oa > ob ? a : b;
     else if (traitSum(sa) !== traitSum(sb)) winner = traitSum(sa) > traitSum(sb) ? a : b;
-    else {
+    else if (m.kind === "tourney") {
+      winner = Math.random() < 0.5 ? a : b; // a bracket needs someone to advance
+    } else {
       winner = null;
       why = "draw";
     }
@@ -296,16 +319,18 @@ async function finalize(m: Match, forcedWinner: string | null, reason: MatchResu
 
   if (m.kind === "tourney" && m.tourney) {
     const { onTourneyMatchDone } = await import("./tourney");
-    await onTourneyMatchDone(m.tourney, m.id, winner ?? (traitSum(m.scores[lc(a)]) >= traitSum(m.scores[lc(b)]) ? a : b));
+    await onTourneyMatchDone(m.tourney, m.id, winner ?? a);
   }
 }
 
 export async function activeMatchOf(u: string): Promise<string | null> {
   const id = await redis().get<string>(K.activeMatch(u));
   if (!id || id.startsWith("pending:")) return null; // pairing in flight
-  const m = parse(await redis().get(K.match(id)));
+  let m = parse(await redis().get(K.match(id)));
+  // Apply timeouts so an abandoned match doesn't block new ones.
+  if (m && isDue(m)) m = await withMatch(id, async (mm) => (await tick(mm), mm));
   if (!m || m.state === "done" || m.state === "cancelled") {
-    await redis().del(K.activeMatch(u));
+    if ((await redis().get(K.activeMatch(u))) === id) await redis().del(K.activeMatch(u));
     return null;
   }
   return id;

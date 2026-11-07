@@ -199,24 +199,22 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     capture();
   }, [live, remaining, phase, myScore, capture]);
 
-  // ── Leaving forfeits (ranked) or cancels (before start) ──────────
+  // ── Navigating away inside the app counts as leaving ─────────────
+  // A reload or closed tab deliberately does NOT send leave: a reload must be
+  // able to recover the match, and the server's timeouts handle tabs that
+  // never come back.
   const stateRef = useRef(match?.state);
   stateRef.current = match?.state;
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    const sendLeave = () => {
-      if (stateRef.current === "connecting" || stateRef.current === "live") {
-        api(`/api/match/${id}/action`, { body: { action: "leave" }, keepalive: true }).catch(() => {});
-      }
-    };
-    window.addEventListener("pagehide", sendLeave);
     return () => {
       mounted.current = false;
-      window.removeEventListener("pagehide", sendLeave);
       // Deferred so React strict-mode's simulated unmount doesn't forfeit.
       setTimeout(() => {
-        if (!mounted.current) sendLeave();
+        if (!mounted.current && (stateRef.current === "connecting" || stateRef.current === "live")) {
+          api(`/api/match/${id}/action`, { body: { action: "leave" }, keepalive: true }).catch(() => {});
+        }
       }, 0);
     };
   }, [id]);
@@ -259,12 +257,14 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     <ReportSheet
       open={reportOpen}
       username={match.opponent}
-      matchId={match.state === "done" || match.state === "cancelled" ? undefined : match.id}
+      matchId={match.id}
+      live={match.state === "connecting" || match.state === "live"}
       onClose={() => setReportOpen(false)}
-      onDone={() => {
+      onDone={({ note }) => {
         setReported(true);
         setRemote(null);
         rtcRef.current?.close();
+        if (note) setCaptureMsg(note);
       }}
     />
   );
@@ -295,14 +295,16 @@ export default function MatchPage({ params }: { params: { id: string } }) {
           body={
             reported
               ? `Thanks for reporting ${match.opponent}. No ELO changed.`
-              : match.ready.length < 2
+              : !match.ready.includes(match.opponent.toLowerCase())
                 ? `${match.opponent} didn't connect in time. No ELO changed.`
-                : "Neither face could be scored in time. No ELO changed."
+                : "This match was called off. No ELO changed."
           }
           action={
             <>
-              <ButtonLink href={match.kind === "ranked" ? "/play?search=1" : "/play"}>
-                {match.kind === "ranked" ? "Find another" : "Back to Play"}
+              <ButtonLink
+                href={match.tourney ? `/play/tourney/${match.tourney}` : match.kind === "ranked" ? "/play?search=1" : "/play"}
+              >
+                {match.tourney ? "Back to tournament" : match.kind === "ranked" ? "Find another" : "Back to Play"}
               </ButtonLink>
               <ButtonLink href="/" variant="plain">
                 Home
@@ -375,13 +377,20 @@ export default function MatchPage({ params }: { params: { id: string } }) {
           you
           showVideo={cam.state === "live"}
           fallback={
-            <p className="text-[14px] text-ink-3">
-              {cam.state === "denied"
-                ? "Camera blocked — allow it in your browser's address bar."
-                : cam.state === "unavailable"
-                  ? "No camera found."
-                  : "Starting camera…"}
-            </p>
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-[14px] text-ink-3">
+                {cam.state === "denied"
+                  ? "Camera blocked — allow it in your browser's address bar, then tap Try again."
+                  : cam.state === "unavailable"
+                    ? "No camera found."
+                    : "Starting camera…"}
+              </p>
+              {cameraProblem && (
+                <Button size="sm" onClick={() => startCam()}>
+                  Try again
+                </Button>
+              )}
+            </div>
           }
           overlay={<CaptureOverlay live={live} remaining={remaining} phase={phase} />}
         />
@@ -393,7 +402,9 @@ export default function MatchPage({ params }: { params: { id: string } }) {
           showVideo={remoteLive}
           fallback={
             <p className="max-w-[240px] text-[14px] text-ink-3">
-              {rtcState === "failed"
+              {reported
+                ? "Video hidden."
+                : rtcState === "failed"
                 ? "Video unavailable — the face-off still counts."
                 : oppReady
                   ? "Connecting video…"
@@ -435,7 +446,7 @@ function StatusBar({
 
   if (cameraProblem) {
     tone = "error";
-    text = "Edgify needs your camera to score you. Allow camera access and reload.";
+    text = "Edgify needs your camera to score you. Allow camera access, then tap Try again.";
   } else if (state === "connecting") {
     spin = true;
     text = oppReady ? "Starting…" : `Waiting for ${opponent} to join…`;

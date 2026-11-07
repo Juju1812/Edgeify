@@ -155,7 +155,7 @@ function Landing() {
             <ScoreRing value={74} size={220} />
             <div className="w-full flex-1">
               <p className="eyebrow">Example result</p>
-              <p className="display mt-2 text-[28px] leading-[1.1] md:text-[34px]">Strong harmony. Clear presence.</p>
+              <p className="display mt-2 text-[28px] leading-[1.1] md:text-[34px]">Sharp jaw. Clear presence.</p>
               <div className="mt-5">
                 <TraitBars
                   compact
@@ -169,7 +169,7 @@ function Landing() {
 
       <section className="mx-auto mt-5 grid max-w-[920px] gap-5 md:grid-cols-3">
         {[
-          ["Scan", "A few quick frames from your webcam. The AI reads eight traits and gives you a 0–100 score."],
+          ["Scan", "A few quick frames from your webcam. The AI reads eight traits and your facial ratios, then gives you a PSL rating."],
           ["Face off", "Get matched with someone near your level. Both faces are scored live — higher score wins."],
           ["Climb", "Win to gain ELO and rise up the global leaderboard. Challenge friends in private rooms."]
         ].map(([t, b], i) => (

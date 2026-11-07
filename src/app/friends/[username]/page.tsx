@@ -11,7 +11,7 @@ import { Linkified, useVisiblePoll } from "@/components/social/helpers";
 import type { PublicProfile } from "@/lib/shared/types";
 
 type Dm = { from: string; text: string; at: number };
-type Relation = "self" | "friends" | "outgoing" | "incoming" | "none";
+type Relation = "self" | "friends" | "outgoing" | "incoming" | "none" | "blocked";
 
 const key = (m: Dm) => `${m.at}:${m.from}:${m.text.length}`;
 
@@ -245,7 +245,15 @@ export default function ConversationPage({ params }: { params: { username: strin
             <Notice tone="error">{error}</Notice>
           </div>
         )}
-        {relation !== null && !canSend ? (
+        {relation === "blocked" ? (
+          <Notice>
+            You blocked {name}.{" "}
+            <Link href={`/u/${name}`} className="font-medium text-accent">
+              Unblock them on their profile
+            </Link>{" "}
+            to chat again.
+          </Notice>
+        ) : relation !== null && !canSend ? (
           <Notice>
             You can only message friends.{" "}
             <Link href={`/u/${name}`} className="font-medium text-accent">

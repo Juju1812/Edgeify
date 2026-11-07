@@ -31,6 +31,7 @@ type Snapshot = { url: string; width: number; height: number; points: Pt[] | nul
 
 type Phase =
   | { k: "intro" }
+  | { k: "preparing" }
   | { k: "countdown"; n: number }
   | { k: "analyzing" }
   /** Scores arrived — they lock in live on the camera feed. */
@@ -67,12 +68,23 @@ export default function ScanPage() {
     const stream = await cam.start();
     const video = cam.videoRef.current;
     if (!stream || !video) return;
+    // Give the face tracker a moment to finish loading on a first visit, so
+    // the scan gets a tight face crop, measured ratios and the live reveal.
+    setPhase({ k: "preparing" });
+    const until = (cond: () => boolean, ms: number) =>
+      new Promise<void>((resolve) => {
+        const t0 = Date.now();
+        const poll = () => (cond() || Date.now() - t0 > ms ? resolve() : setTimeout(poll, 100));
+        poll();
+      });
+    await until(() => tracker.readyRef.current !== "loading", 8000);
     for (const n of [3, 2, 1]) {
       setPhase({ k: "countdown", n });
       await new Promise((r) => setTimeout(r, 800));
     }
     // If the tracker is running and sees no face, don't spend a scan on it.
-    if (tracker.ready === "ready" && !tracker.landmarks.current) {
+    if (tracker.readyRef.current === "ready") await until(() => !!tracker.landmarks.current, 1500);
+    if (tracker.readyRef.current === "ready" && !tracker.landmarks.current) {
       setPhase({ k: "error", message: "We can't see your face. Center yourself in the frame and try again.", retry: true });
       return;
     }
@@ -97,7 +109,7 @@ export default function ScanPage() {
       setPhase({
         k: "error",
         message: err?.message || "Couldn't reach Edgify. Check your connection.",
-        retry: err?.status !== 429
+        retry: true
       });
     }
   }
@@ -133,7 +145,11 @@ export default function ScanPage() {
             {phase.k === "analyzing" ? "Reading your face" : phase.k === "reveal" ? "Your score" : me.score ? "Scan again" : "Get your score"}
           </h1>
           <p className="mt-1.5 text-[17px] text-ink-3">
-            Face a window or a lamp, look straight ahead, and keep a neutral face.
+            {phase.k === "reveal"
+              ? "Here's how the AI read your face."
+              : phase.k === "analyzing"
+                ? "Hold still for a few seconds."
+                : "Face a window or a lamp, look straight ahead, and keep a neutral face."}
           </p>
         </div>
 
@@ -157,9 +173,15 @@ export default function ScanPage() {
                 <div className="h-[72%] w-auto aspect-[3/4] rounded-[50%] border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
               </div>
             )}
-            {camLive && tracker.ready === "ready" && (phase.k === "intro" || phase.k === "countdown" || phase.k === "error") && (
+            {camLive && (phase.k === "intro" || phase.k === "preparing" || phase.k === "countdown" || phase.k === "error") && (
               <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/45 px-3.5 py-1.5 text-[13px] font-medium text-white backdrop-blur">
-                {tracking ? "Face locked" : "Looking for your face…"}
+                {tracker.ready === "loading"
+                  ? "Loading face tracker…"
+                  : tracker.ready === "unavailable"
+                    ? "Face tracking unavailable"
+                    : tracking
+                      ? "Face locked"
+                      : "Looking for your face…"}
               </div>
             )}
             {phase.k === "analyzing" && !readingFallback && (

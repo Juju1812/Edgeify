@@ -28,7 +28,7 @@ export const UNUSABLE_MESSAGES: Record<UnusableReason | "refused" | "parse_faile
   not_a_live_photo: "That doesn't look like a live camera feed.",
   explicit_content: "That frame broke our content rules. Keep it clean — repeat violations get you suspended.",
   refused: "We couldn't score that. Try again with a clear, front-facing shot.",
-  parse_failed: "Scoring hiccup — please try again. This one didn't count."
+  parse_failed: "Scoring hiccup — please try again."
 };
 
 /** Score frames with the global AI budget enforced. */

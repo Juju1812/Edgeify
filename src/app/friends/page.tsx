@@ -92,6 +92,7 @@ function FriendsTab() {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [incoming, setIncoming] = useState<FriendRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -99,10 +100,12 @@ function FriendsTab() {
       const r = await api<{ friends: FriendRow[]; incoming: FriendRow[] }>("/api/friends");
       setFriends(r.friends);
       setIncoming(r.incoming);
+      setLoadError(null);
     } catch (e) {
-      if (e instanceof ApiError) setError(e.message);
+      if (e instanceof ApiError) setLoadError(e.message);
     }
   }, []);
+  const shownError = error ?? loadError;
 
   useVisiblePoll(load, 20_000);
 
@@ -142,7 +145,7 @@ function FriendsTab() {
         onError={setError}
       />
 
-      {error && <Notice tone="error">{error}</Notice>}
+      {shownError && <Notice tone="error">{shownError}</Notice>}
 
       {incoming.length > 0 && (
         <section>

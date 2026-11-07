@@ -10,6 +10,10 @@ const FONT = "-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif";
 /** Compact names so chips stay small on the face. */
 const SHORT_LABELS: Record<TraitKey, string> = { ...TRAIT_LABELS, jaw: "Jaw" };
 
+/** Chip text sizes relative to the layout's base font size. */
+const LABEL_EM = 0.82;
+const VALUE_EM = 1.05;
+
 // ─── Shared layout ─────────────────────────────────────────────────────
 
 type Callout = { key: TraitKey; ax: number; ay: number; lx: number; ly: number; side: "left" | "right" };
@@ -41,9 +45,14 @@ function spread(items: Callout[], gap: number, top: number, bottom: number) {
 export function layoutOverlay(px: Pt[], W: number, H: number): OverlayLayout {
   const unit = Math.min(W, H) / 100;
   const roomy = W / H > 1.2;
-  const chipW = unit * (roomy ? 27 : 23);
-  const chipH = unit * (roomy ? 7.6 : 6.8);
-  const fs = unit * (roomy ? 3.5 : 3.15);
+  const chipH = unit * (roomy ? 7.6 : 6.6);
+  const fs = unit * (roomy ? 3.5 : 2.75);
+  // Size chips from the longest label so names never run into their number.
+  // ~0.6em per character is a safe upper bound for the system UI font at
+  // weight 500; two bold digits are ~0.64em each.
+  const longest = Math.max(...TRAIT_KEYS.map((k) => SHORT_LABELS[k].length));
+  const needed = unit * 2.6 * 2 + longest * 0.6 * fs * LABEL_EM + unit * 2 + 2 * 0.64 * fs * VALUE_EM;
+  const chipW = Math.max(unit * (roomy ? 27 : 23), needed);
 
   const xs = DOT_INDICES.map((i) => px[i]?.x ?? W / 2);
   const ys = DOT_INDICES.map((i) => px[i]?.y ?? H / 2);
@@ -187,7 +196,7 @@ export function LiveScanOverlay({
       }
 
       ctx.save();
-      ctx.font = `500 ${L.fs * 0.82}px ${FONT}`;
+      ctx.font = `500 ${L.fs * LABEL_EM}px ${FONT}`;
       L.callouts.forEach((cl, n) => {
         // Chips grow out of their dot one after another.
         const grow = Math.min(1, Math.max(0, (since - n * 90) / 260));
@@ -246,10 +255,20 @@ export function LiveScanOverlay({
           ctx.textBaseline = "middle";
           ctx.textAlign = "left";
           ctx.fillStyle = "rgba(255,255,255,0.88)";
-          ctx.font = `500 ${L.fs * 0.82}px ${FONT}`;
+          // Measure the real text: shrink the label if it would touch the number.
+          ctx.font = `700 ${L.fs * VALUE_EM}px ${FONT}`;
+          const valueW = ctx.measureText("88").width;
+          const room = cw - u * 2.6 * 2 - valueW - u * 1.4;
+          let labelPx = L.fs * LABEL_EM;
+          ctx.font = `500 ${labelPx}px ${FONT}`;
+          const lw = ctx.measureText(SHORT_LABELS[cl.key]).width;
+          if (lw > room) {
+            labelPx *= room / lw;
+            ctx.font = `500 ${labelPx}px ${FONT}`;
+          }
           ctx.fillText(SHORT_LABELS[cl.key], cx + u * 2.6, cy + ch / 2);
           ctx.textAlign = "right";
-          ctx.font = `700 ${L.fs * (1.05 + pop * 0.25)}px ${FONT}`;
+          ctx.font = `700 ${L.fs * (VALUE_EM + pop * 0.25)}px ${FONT}`;
           ctx.fillStyle = color;
           ctx.globalAlpha = locked ? 1 : 0.5;
           ctx.fillText(String(value), cx + cw - u * 2.6, cy + ch / 2);
@@ -338,7 +357,7 @@ export function ScanOverlay({
 
   return (
     <div className="relative w-full overflow-hidden rounded-[22px] bg-black">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={`Overall score ${overall} out of 100`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={`Overall score ${overall}, ${formatPsl(overall)}`}>
         <image href={image} x={0} y={0} width={W} height={H} preserveAspectRatio="xMidYMid slice" />
         <defs>
           <radialGradient id="vig" cx="50%" cy="45%" r="75%">
@@ -389,10 +408,10 @@ export function ScanOverlay({
               <circle cx={c.ax} cy={c.ay} r={u * 1.0} fill={color} filter="url(#ds)" />
               <rect x={c.lx} y={c.ly} width={L.chipW} height={L.chipH} rx={L.chipH / 2} fill="rgba(0,0,0,0.55)" />
               <rect x={c.lx} y={c.ly} width={L.chipW} height={L.chipH} rx={L.chipH / 2} fill="none" stroke={color} strokeOpacity="0.7" strokeWidth={u * 0.22} />
-              <text x={c.lx + u * 2.6} y={endY} dominantBaseline="central" fontSize={L.fs * 0.82} fontWeight={500} fill="#fff" fillOpacity="0.88" fontFamily={FONT}>
+              <text x={c.lx + u * 2.6} y={endY} dominantBaseline="central" fontSize={L.fs * LABEL_EM} fontWeight={500} fill="#fff" fillOpacity="0.88" fontFamily={FONT}>
                 {SHORT_LABELS[c.key]}
               </text>
-              <text x={c.lx + L.chipW - u * 2.6} y={endY} dominantBaseline="central" textAnchor="end" fontSize={L.fs * 1.05} fontWeight={700} fill={color} fontFamily={FONT}>
+              <text x={c.lx + L.chipW - u * 2.6} y={endY} dominantBaseline="central" textAnchor="end" fontSize={L.fs * VALUE_EM} fontWeight={700} fill={color} fontFamily={FONT}>
                 {traits[c.key]}
               </text>
             </motion.g>
