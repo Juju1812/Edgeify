@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
-import { Avatar, Button, Card, Empty, Input, Notice, PageTitle } from "@/components/ui";
+import { Avatar, Button, Card, Empty, Input, Notice, PageTitle, UserName } from "@/components/ui";
 import {
   challengeFriend,
   relativeTime,
@@ -15,7 +15,7 @@ import {
   useVisiblePoll
 } from "@/components/social/helpers";
 
-type FriendRow = { username: string; online: boolean; elo: number; overall: number | null; hasFace: boolean };
+type FriendRow = { username: string; online: boolean; elo: number; overall: number | null; hasFace: boolean; faceAt?: number };
 type Conversation = {
   with: string;
   lastAt: number;
@@ -154,9 +154,9 @@ function FriendsTab() {
             {incoming.map((f) => (
               <div key={f.username} className="flex items-center gap-3 px-4 py-3.5">
                 <Link href={`/u/${f.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-                  <Avatar username={f.username} hasFace={f.hasFace} size={44} />
+                  <Avatar username={f.username} hasFace={f.hasFace} version={f.faceAt} size={44} />
                   <span className="min-w-0">
-                    <span className="block truncate text-[16px] font-semibold text-ink">{f.username}</span>
+                    <UserName username={f.username} className="flex text-[16px] font-semibold text-ink" />
                     <span className="block text-[13px] text-ink-3">Wants to be friends</span>
                   </span>
                 </Link>
@@ -198,9 +198,9 @@ function FriendsTab() {
               {friends.map((f) => (
                 <li key={f.username} className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:flex-nowrap">
                   <Link href={`/u/${f.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-                    <Avatar username={f.username} hasFace={f.hasFace} size={44} online={f.online} />
+                    <Avatar username={f.username} hasFace={f.hasFace} version={f.faceAt} size={44} online={f.online} />
                     <span className="min-w-0">
-                      <span className="block truncate text-[16px] font-semibold text-ink">{f.username}</span>
+                      <UserName username={f.username} className="flex text-[16px] font-semibold text-ink" />
                       <span className="block text-[13px] text-ink-3">
                         {f.online ? <span className="text-good">Online</span> : "Offline"}
                         <span className="mx-1.5 text-ink-4">·</span>
@@ -343,7 +343,7 @@ function SearchCard({
                   <li key={name} className="flex items-center gap-3 px-1 py-2.5">
                     <Link href={`/u/${name}`} className="flex min-w-0 flex-1 items-center gap-3">
                       <Avatar username={name} hasFace size={40} />
-                      <span className="truncate text-[16px] font-medium text-ink">{name}</span>
+                      <UserName username={name} className="text-[16px] font-medium text-ink" />
                     </Link>
                     {state === "friends" ? (
                       <span className="px-3 text-[14px] text-ink-3">Friends</span>
@@ -414,9 +414,7 @@ function MessagesTab({ active, onUnread }: { active: boolean; onUnread: (n: numb
                   <Avatar username={c.with} hasFace size={48} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-3">
-                      <span className={clsx("truncate text-[16px] text-ink", c.unread ? "font-bold" : "font-semibold")}>
-                        {c.with}
-                      </span>
+                      <UserName username={c.with} className={clsx("text-[16px] text-ink", c.unread ? "font-bold" : "font-semibold")} />
                       <span className="shrink-0 text-[13px] text-ink-3">{relativeTime(c.lastAt)}</span>
                     </span>
                     <span className="mt-0.5 flex items-center gap-2">

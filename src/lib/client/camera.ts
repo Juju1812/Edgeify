@@ -113,24 +113,46 @@ export function grabMirroredFrame(video: HTMLVideoElement, max = 900): { url: st
   return { url: c.toDataURL("image/jpeg", 0.88), width: c.width, height: c.height };
 }
 
-/** Square, centred thumbnail for the public avatar. */
-export function grabThumb(video: HTMLVideoElement, size = 320): string | null {
+/**
+ * Square profile photo. With landmarks it's framed on the face (head and a
+ * little shoulder); otherwise a centred crop of the frame.
+ */
+export function grabThumb(video: HTMLVideoElement, pts?: { x: number; y: number }[] | null, size = 320): string | null {
   const w = video.videoWidth;
   const h = video.videoHeight;
   if (!w || !h) return null;
-  const side = Math.min(w, h) * 0.8;
-  const sx = (w - side) / 2;
-  const sy = Math.max(0, (h - side) / 2 - side * 0.05);
+  let side = Math.min(w, h) * 0.8;
+  let sx = (w - side) / 2;
+  let sy = Math.max(0, (h - side) / 2 - side * 0.05);
+  if (pts && pts.length >= 100) {
+    // Landmarks are mirrored for the preview; flip back to raw camera coords.
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const p of pts) {
+      const x = 1 - p.x;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const fw = (maxX - minX) * w;
+    const fh = (maxY - minY) * h;
+    side = Math.min(Math.max(fw, fh) * 1.7, Math.min(w, h));
+    const cx = ((minX + maxX) / 2) * w;
+    const cy = ((minY + maxY) / 2) * h - fh * 0.06;
+    sx = Math.max(0, Math.min(w - side, cx - side / 2));
+    sy = Math.max(0, Math.min(h - side, cy - side / 2));
+  }
   const c = document.createElement("canvas");
   c.width = size;
   c.height = size;
   const ctx = c.getContext("2d");
   if (!ctx) return null;
-  // Mirror so the avatar matches what people saw of themselves.
+  ctx.imageSmoothingQuality = "high";
+  // Mirror so the photo matches what people saw of themselves.
   ctx.translate(size, 0);
   ctx.scale(-1, 1);
   ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
-  return c.toDataURL("image/jpeg", 0.82);
+  return c.toDataURL("image/jpeg", 0.85);
 }
 
 /**

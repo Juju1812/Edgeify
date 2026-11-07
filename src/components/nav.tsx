@@ -73,7 +73,7 @@ export function Nav() {
             )}
             {me && (
               <Link href="/settings" aria-label="Your profile and settings" className="rounded-full">
-                <Avatar username={me.username} hasFace={me.hasFace} size={36} version={faceVersion} />
+                <Avatar username={me.username} hasFace={me.hasFace} size={36} version={me.faceAt ?? faceVersion} />
               </Link>
             )}
           </div>

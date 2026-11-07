@@ -1,6 +1,6 @@
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
-import { addReading, getProfile, saveProfile, toMe } from "@/lib/server/profile";
+import { setScanScore, getProfile, saveProfile, toMe } from "@/lib/server/profile";
 import { rateLimit } from "@/lib/server/ratelimit";
 import { parseFrames, scoreFramesOrExplain, UNUSABLE_MESSAGES } from "@/lib/server/scoring";
 import { redis, K } from "@/lib/server/redis";
@@ -17,8 +17,8 @@ const MAX_THUMB = 120_000;
 /**
  * POST /api/scan { frames: dataUrl[], thumb: dataUrl, ratios?: Ratios }
  * Scores up to 5 face crops with Claude (plus the facial ratios measured in
- * the browser) and folds the result into the user's rolling score. The thumb
- * becomes their public avatar.
+ * the browser). The result becomes the user's score outright, and the thumb
+ * from this scan becomes their profile photo.
  */
 export const POST = handle(async (req: Request) => {
   const u = await requireUser();
@@ -39,7 +39,7 @@ export const POST = handle(async (req: Request) => {
 
   const p = await getProfile(u);
   const { overall, traits, headline, strengths, improvements, confidence, sex } = result.score;
-  addReading(
+  setScanScore(
     p,
     { overall, traits, at: Date.now(), source: "scan", v: SCORE_SCALE_VERSION },
     { headline, strengths, improvements, confidence, sex }
@@ -53,6 +53,7 @@ export const POST = handle(async (req: Request) => {
     if (body.thumb.length > MAX_THUMB) throw new HttpError(413, "thumb_too_large");
     await redis().set(K.face(u), body.thumb);
     p.hasFace = true;
+    p.faceAt = Date.now();
   }
   await saveProfile(p);
 

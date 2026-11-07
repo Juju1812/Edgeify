@@ -58,9 +58,12 @@ async function main() {
   console.log("scan (AI)");
   const faces = [faceA, faceB];
   for (const [i, c] of [a, b].entries()) {
-    const r = await c.call("/api/scan", "POST", { frames: [dataUrl(faces[i])] });
+    const r = await c.call("/api/scan", "POST", { frames: [dataUrl(faces[i])], thumb: dataUrl(faces[i]) });
     ok(r.status === 200 && typeof r.data.reading?.overall === "number", `${c.name} scored ${r.data.reading?.overall} (${r.status} ${r.data.message || ""})`);
+    ok(r.data.me?.score?.overall === r.data.reading?.overall, "score is exactly the latest scan");
+    ok(r.data.me?.hasFace && typeof r.data.me?.faceAt === "number", "scan thumbnail became the profile photo");
   }
+  const scoreBeforeMatch = (await a.call("/api/me")).data.me.score.overall;
 
   console.log("friends + DMs");
   ok((await a.call("/api/messages/" + b.name, "POST", { text: "hi" })).status === 403, "DM blocked before friends");
@@ -109,6 +112,7 @@ async function main() {
   console.log("    elo:", JSON.stringify(done.result?.elo));
   const meA = (await a.call("/api/me")).data.me;
   ok(meA.wins + meA.losses + meA.draws === 1 && meA.placementsLeft === 2, "record + placements updated server-side");
+  ok(meA.score.overall === scoreBeforeMatch, "match didn't change the scan score");
 
   console.log("private room");
   const room = (await a.call("/api/rooms", "POST")).data.room;
@@ -129,7 +133,11 @@ async function main() {
   await a.call("/api/messages/" + b.name, "POST", { text: "gg" });
   ok((await b.call("/api/me")).data.badges?.unread === 1, "unread badge counts new DM");
   const face = await fetch(`${base}/api/face/${a.name}`);
-  ok(face.status === 200 && face.headers.get("content-type") === "image/svg+xml", "no-photo avatar returns initials SVG, not 404");
+  ok(face.status === 200 && face.headers.get("content-type") === "image/jpeg", "avatar serves the latest scan photo");
+  const faceV = await fetch(`${base}/api/face/${a.name}?v=1`);
+  ok(/immutable/.test(faceV.headers.get("cache-control") || ""), "versioned avatar URL is cached hard");
+  const noFace = await fetch(`${base}/api/face/zzt_nobody_${tag}`);
+  ok(noFace.status === 200 && noFace.headers.get("content-type") === "image/svg+xml", "no-photo avatar returns initials SVG, not 404");
 
   console.log("report during match cancels it");
   const room2 = (await a.call("/api/rooms", "POST")).data.room;

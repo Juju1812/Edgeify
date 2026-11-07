@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
 import { formatPsl, type LeaderboardRow, type MeProfile } from "@/lib/shared/types";
-import { Avatar, ButtonLink, Card, Spinner } from "@/components/ui";
+import { Avatar, ButtonLink, Card, Spinner, UserName } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 import { Logo } from "@/components/nav";
 
@@ -47,7 +47,7 @@ function Dashboard({ me }: { me: MeProfile }) {
               </p>
               <h2 className="display mt-2 text-[30px] leading-[1.1] md:text-[44px]">{s.headline}</h2>
               <p className="mt-3 text-[16px] text-ink-3">
-                Based on {s.readings} {s.readings === 1 ? "reading" : "readings"}
+                From your latest scan
                 {me.placementsLeft > 0
                   ? ` · ${me.placementsLeft} placement ${me.placementsLeft === 1 ? "match" : "matches"} until you're ranked`
                   : ` · ${me.elo} ELO`}
@@ -110,8 +110,8 @@ function Dashboard({ me }: { me: MeProfile }) {
             {top?.map((r) => (
               <li key={r.username} className="border-b border-line last:border-0">
                 <Link href={`/u/${r.username}`} className="flex items-center gap-3 py-3">
-                  <Avatar username={r.username} hasFace={r.hasFace} size={40} />
-                  <span className="flex-1 truncate text-[17px] text-ink">{r.username}</span>
+                  <Avatar username={r.username} hasFace={r.hasFace} version={r.faceAt} size={40} />
+                  <UserName username={r.username} className="flex-1 text-[17px] text-ink" />
                   <span className="text-[17px] tabular-nums text-ink">{r.elo}</span>
                 </Link>
               </li>

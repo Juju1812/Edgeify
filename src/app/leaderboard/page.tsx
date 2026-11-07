@@ -6,7 +6,7 @@ import { clsx } from "clsx";
 import { api } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
 import { formatPsl, type LeaderboardRow } from "@/lib/shared/types";
-import { Avatar, ButtonLink, Card, Empty, Flag, PageTitle } from "@/components/ui";
+import { Avatar, ButtonLink, Card, Empty, Flag, OwnerTag, PageTitle } from "@/components/ui";
 
 export default function LeaderboardPage() {
   const { me } = useSession();
@@ -40,8 +40,9 @@ export default function LeaderboardPage() {
             <Link key={r.username} href={`/u/${r.username}`}>
               <Card className={clsx("flex flex-col items-center px-3 py-6 text-center transition-shadow hover:shadow-lift", i === 1 && "md:-translate-y-3")}>
                 <span className="eyebrow">#{r.rank}</span>
-                <Avatar username={r.username} hasFace={r.hasFace} size={i === 1 ? 84 : 68} className="mt-3" />
+                <Avatar username={r.username} hasFace={r.hasFace} version={r.faceAt} size={i === 1 ? 84 : 68} className="mt-3" />
                 <span className="mt-3 max-w-full truncate text-[16px] font-semibold md:text-[18px]">{r.username}</span>
+                <OwnerTag username={r.username} className="mt-1" />
                 <span className="text-[14px] tabular-nums text-ink-3">{r.elo} ELO</span>
               </Card>
             </Link>
@@ -85,10 +86,11 @@ export default function LeaderboardPage() {
             >
               <span className="text-[15px] font-semibold tabular-nums text-ink-3">{r.rank}</span>
               <span className="flex min-w-0 items-center gap-3">
-                <Avatar username={r.username} hasFace={r.hasFace} size={40} />
+                <Avatar username={r.username} hasFace={r.hasFace} version={r.faceAt} size={40} />
                 <span className="truncate text-[16px] text-ink">
                   {r.username} {r.country && <Flag code={r.country} />}
                 </span>
+                <OwnerTag username={r.username} />
               </span>
               <span className="flex flex-col items-end text-right leading-tight">
                 <span className="text-[16px] tabular-nums text-ink-2">{r.overall ?? "–"}</span>

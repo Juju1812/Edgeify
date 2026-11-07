@@ -12,6 +12,7 @@ export type FriendRow = {
   elo: number;
   overall: number | null;
   hasFace: boolean;
+  faceAt?: number;
 };
 
 async function rows(names: string[]): Promise<FriendRow[]> {
@@ -29,7 +30,8 @@ async function rows(names: string[]): Promise<FriendRow[]> {
         online: !!online[i],
         elo: p?.elo ?? 1000,
         overall: p?.score?.overall ?? null,
-        hasFace: !!p?.hasFace
+        hasFace: !!p?.hasFace,
+        faceAt: p?.faceAt
       };
     })
     .sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username));

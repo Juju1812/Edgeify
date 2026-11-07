@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { clsx } from "clsx";
-import { Avatar } from "@/components/ui";
+import { Avatar, OwnerTag } from "@/components/ui";
 
 type Props = {
   name: string;
@@ -76,6 +76,7 @@ export function VideoTile({
 
       <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1.5 text-[13px] shadow-sm backdrop-blur-md">
         <span className="max-w-[140px] truncate font-semibold text-ink">{name}</span>
+        <OwnerTag username={name} />
         {you && <span className="text-ink-3">You</span>}
         {elo !== undefined && <span className="tabular-nums text-ink-3">{elo}</span>}
       </div>

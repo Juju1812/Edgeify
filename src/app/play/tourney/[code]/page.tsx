@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
-import { Avatar, Button, ButtonLink, Card, Notice, PageTitle } from "@/components/ui";
+import { Avatar, Button, ButtonLink, Card, Notice, OwnerTag, PageTitle, UserName } from "@/components/ui";
 import { CenteredSpinner, ErrorCard, copyText, useRequireSignIn } from "@/components/play/common";
 
 type Bracket = { id: string | null; a: string | null; b: string | null; winner: string | null };
@@ -149,7 +149,7 @@ export default function TourneyPage({ params }: { params: { code: string } }) {
                     {p ? (
                       <>
                         <Avatar username={p} hasFace size={40} />
-                        <span className="text-[16px] font-medium">{p}</span>
+                        <UserName username={p} className="text-[16px] font-medium" />
                         {p.toLowerCase() === t.host.toLowerCase() && (
                           <span className="ml-auto rounded-full bg-fill px-2.5 py-0.5 text-[12px] text-ink-3">Host</span>
                         )}
@@ -209,7 +209,10 @@ export default function TourneyPage({ params }: { params: { code: string } }) {
             <Card className="mb-5 flex flex-col items-center p-8 text-center md:p-10">
               <p className="eyebrow">Champion</p>
               <Avatar username={t.champion} hasFace size={88} className="mt-4" />
-              <p className="display mt-3 text-[32px]">{t.champion}</p>
+              <p className="display mt-3 flex items-center gap-2 text-[32px]">
+                {t.champion}
+                <OwnerTag username={t.champion} />
+              </p>
               {t.champion.toLowerCase() === myName && <p className="mt-1 text-[16px] text-accent-ink">That's you. Well played.</p>}
             </Card>
           )}
@@ -273,6 +276,7 @@ function BracketCard({ label, b, me }: { label: string; b: Bracket | undefined; 
                   <span className={clsx("text-[15px]", won ? "font-semibold text-accent-ink" : "text-ink")}>
                     {p}
                     {p.toLowerCase() === me && <span className="text-ink-3"> (you)</span>}
+                    <OwnerTag username={p} className="ml-1.5" />
                   </span>
                   {won && <span className="ml-auto text-[13px] font-semibold text-accent-ink">Won</span>}
                 </>

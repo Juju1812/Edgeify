@@ -14,19 +14,23 @@ function initialsSvg(username: string) {
  * GET /api/face/:username — the player's scan thumbnail, or a generated
  * initials avatar if they haven't scanned (never a 404, so avatars always load).
  */
-export async function GET(_req: Request, { params }: { params: { username: string } }) {
+export async function GET(req: Request, { params }: { params: { username: string } }) {
   if (!isValidUsername(params.username)) return new Response(null, { status: 404 });
   const dataUrl = await redis().get<string>(K.face(params.username));
   if (!dataUrl || typeof dataUrl !== "string") {
     return new Response(initialsSvg(params.username), {
-      headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=60" }
+      headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=30" }
     });
   }
   const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
   return new Response(Buffer.from(b64, "base64"), {
     headers: {
       "Content-Type": "image/jpeg",
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=600"
+      // Versioned URLs (?v=faceAt) change on every new scan, so they can be
+      // cached hard; unversioned ones must pick up a new scan quickly.
+      "Cache-Control": new URL(req.url).searchParams.has("v")
+        ? "public, max-age=31536000, immutable"
+        : "public, max-age=30"
     }
   });
 }

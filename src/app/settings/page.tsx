@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/client/api";
 import { useRequireAuth } from "@/lib/client/use-require-auth";
 import { DEFAULT_OVERLAY_COLOR, type MeProfile } from "@/lib/shared/types";
-import { Avatar, Button, ButtonLink, Card, Input, Notice, PageTitle, Spinner } from "@/components/ui";
+import { Avatar, Button, ButtonLink, Card, Input, Notice, PageTitle, Spinner, UserName } from "@/components/ui";
 import { RecoveryCodeCard } from "@/components/recovery-code";
 
 const COUNTRIES: [string, string][] = [
@@ -72,9 +72,9 @@ export default function SettingsPage() {
         <PageTitle title="Profile" />
 
         <Card className="flex items-center gap-5 p-6">
-          <Avatar username={me.username} hasFace={me.hasFace} size={72} version={faceVersion} />
+          <Avatar username={me.username} hasFace={me.hasFace} size={72} version={me.faceAt ?? faceVersion} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[22px] font-semibold tracking-tight">{me.username}</p>
+            <UserName username={me.username} className="flex text-[22px] font-semibold tracking-tight" />
             <p className="text-[15px] text-ink-3">
               {me.score ? `Score ${me.score.overall}` : "Not scanned yet"} · {me.elo} ELO · {me.wins}–{me.losses}
             </p>
@@ -346,7 +346,7 @@ function BlockedSection() {
         {blocked.map((u) => (
           <li key={u} className="flex items-center gap-3 border-b border-line py-2.5 last:border-0">
             <Avatar username={u} hasFace size={34} />
-            <span className="flex-1 truncate text-[15px]">{u}</span>
+            <UserName username={u} className="flex-1 text-[15px]" />
             <Button size="sm" variant="plain" loading={busy === u} onClick={() => unblock(u)}>
               Unblock
             </Button>

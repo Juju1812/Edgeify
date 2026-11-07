@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
-import { Avatar, Button, ButtonLink, Card, Empty, Flag, Notice } from "@/components/ui";
+import { Avatar, Button, ButtonLink, Card, Empty, Flag, Notice, OwnerTag } from "@/components/ui";
 import { ScoreRing, TraitBars, tierLabel } from "@/components/score";
 import { challengeFriend } from "@/components/social/helpers";
 import { ReportSheet } from "@/components/report-sheet";
@@ -117,11 +117,12 @@ export default function ProfilePage({ params }: { params: { username: string } }
             username={user.username}
             hasFace={user.hasFace}
             size={120}
-            version={relation === "self" ? faceVersion : undefined}
+            version={user.faceAt ?? (relation === "self" ? faceVersion : undefined)}
             online={user.online}
           />
           <h1 className="display mt-5 flex items-center gap-2 text-[30px] leading-tight">
             {user.username}
+            <OwnerTag username={user.username} />
             <span className="text-[24px]">
               <Flag code={user.country} />
             </span>

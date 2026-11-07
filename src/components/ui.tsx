@@ -200,3 +200,35 @@ export function Flag({ code }: { code: string }) {
     </span>
   );
 }
+
+/** Accounts that get the Owner tag next to their name, everywhere. */
+const OWNERS = new Set(["jrubski"]);
+export const isOwner = (username?: string | null) => !!username && OWNERS.has(username.toLowerCase());
+
+export function OwnerTag({ username, className }: { username?: string | null; className?: string }) {
+  if (!isOwner(username)) return null;
+  return (
+    <span
+      title="Edgify owner"
+      className={clsx(
+        "inline-flex shrink-0 items-center gap-[0.3em] rounded-full bg-ink px-[0.6em] py-[0.3em] align-middle text-[11px] font-semibold uppercase leading-none tracking-[0.06em] text-white",
+        className
+      )}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden className="h-[1.1em] w-[1.1em]" fill="currentColor">
+        <path d="M2 5.2l3.3 2.6L8 3l2.7 4.8L14 5.2l-1.2 6.6H3.2L2 5.2zM3.4 12.8h9.2v1.4H3.4z" />
+      </svg>
+      Owner
+    </span>
+  );
+}
+
+/** A username that truncates cleanly, with the Owner tag when it applies. */
+export function UserName({ username, className }: { username: string; className?: string }) {
+  return (
+    <span className={clsx("inline-flex min-w-0 max-w-full items-center gap-1.5", className)}>
+      <span className="truncate">{username}</span>
+      <OwnerTag username={username} />
+    </span>
+  );
+}

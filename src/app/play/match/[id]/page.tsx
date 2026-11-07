@@ -8,7 +8,7 @@ import { captureFaceBurst, useCamera } from "@/lib/client/camera";
 import { useFaceTracker } from "@/lib/client/face-mesh";
 import { connectMatch, type RtcHandle, type RtcState } from "@/lib/client/rtc";
 import type { MatchView } from "@/lib/shared/match-types";
-import { Button, ButtonLink, Spinner } from "@/components/ui";
+import { Button, ButtonLink, OwnerTag, Spinner } from "@/components/ui";
 import { CenteredSpinner, ErrorCard, useRequireSignIn } from "@/components/play/common";
 import { VideoTile } from "@/components/play/video-tile";
 import { MatchResult } from "@/components/play/match-result";
@@ -330,7 +330,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
         <div>
           <p className="eyebrow">{KIND_LABEL[match.kind]}</p>
           <h1 className="mt-1 text-[24px] font-bold tracking-tighter md:text-[30px]">
-            You vs {match.opponent}
+            You vs {match.opponent} <OwnerTag username={match.opponent} />
           </h1>
         </div>
         <div className="flex items-center gap-2">

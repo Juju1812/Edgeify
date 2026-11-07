@@ -2,7 +2,7 @@ import "server-only";
 import { redis, K } from "./redis";
 import { HttpError } from "./http";
 import { randomToken } from "./auth";
-import { addReading, getProfile, saveProfile } from "./profile";
+import { getProfile, saveProfile } from "./profile";
 import { eloDelta } from "@/lib/shared/elo";
 import {
   CAPTURE_WINDOW_MS,
@@ -14,7 +14,7 @@ import {
   type MatchState,
   type MatchView
 } from "@/lib/shared/match-types";
-import { SCORE_SCALE_VERSION, TRAIT_KEYS } from "@/lib/shared/types";
+import { TRAIT_KEYS } from "@/lib/shared/types";
 
 export type Match = {
   id: string;
@@ -298,19 +298,6 @@ async function finalize(m: Match, forcedWinner: string | null, reason: MatchResu
     }
   }
 
-  // Every usable match scan also refines the player's rolling score.
-  for (const p of [pa, pb]) {
-    const s = m.scores[lc(p.username)];
-    if (s?.ok) {
-      addReading(
-        p,
-        { overall: s.overall, traits: s.traits, at: Date.now(), source: "match", v: SCORE_SCALE_VERSION },
-        p.score
-          ? { headline: p.score.headline, strengths: p.score.strengths, improvements: p.score.improvements, confidence: p.score.confidence }
-          : { headline: s.headline, strengths: [], improvements: [], confidence: "medium" }
-      );
-    }
-  }
   await Promise.all([saveProfile(pa), saveProfile(pb)]);
 
   m.state = "done";

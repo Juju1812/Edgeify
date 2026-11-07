@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { clsx } from "clsx";
-import { ButtonLink, Card } from "@/components/ui";
+import { ButtonLink, Card, OwnerTag } from "@/components/ui";
 import { ScoreRing, TraitBars } from "@/components/score";
 import type { MatchScore, MatchView } from "@/lib/shared/match-types";
 
@@ -110,7 +110,10 @@ function Side({ name, label, overall, winner }: { name: string; label: string; o
       <div className="sm:hidden">
         <ScoreRing value={overall} size={128} label="" muted={!winner} />
       </div>
-      <p className="mt-3 max-w-full truncate text-[16px] font-semibold">{label}</p>
+      <p className="mt-3 flex max-w-full items-center gap-1.5 text-[16px] font-semibold">
+        <span className="truncate">{label}</span>
+        <OwnerTag username={name} />
+      </p>
       {overall === null && <p className="text-[13px] text-ink-4">No score</p>}
       {winner && <p className="text-[13px] font-medium text-accent-ink">Winner</p>}
       <span className="sr-only">{name}</span>

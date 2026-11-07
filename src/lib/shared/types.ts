@@ -85,7 +85,7 @@ export type Reading = {
   v?: number;
 };
 
-/** The user's current score: a rolling average of their recent readings. */
+/** The user's current score: exactly what their most recent scan said. */
 export type Score = {
   overall: number;
   traits: Traits;
@@ -114,6 +114,8 @@ export type MeProfile = {
   placementsLeft: number;
   score: Score | null;
   hasFace: boolean;
+  /** When the profile photo was last replaced (busts avatar caches). */
+  faceAt?: number;
   bio: string;
   country: string;
   showOnBoard: boolean;
@@ -125,7 +127,7 @@ export const DEFAULT_OVERLAY_COLOR = "#ffffff";
 
 export type PublicProfile = Pick<
   MeProfile,
-  "username" | "elo" | "peakElo" | "wins" | "losses" | "draws" | "bio" | "country" | "hasFace"
+  "username" | "elo" | "peakElo" | "wins" | "losses" | "draws" | "bio" | "country" | "hasFace" | "faceAt"
 > & {
   overall: number | null;
   traits: Traits | null;
@@ -144,6 +146,7 @@ export type LeaderboardRow = {
   losses: number;
   country: string;
   hasFace: boolean;
+  faceAt?: number;
 };
 
 export const PLACEMENT_MATCHES = 3;

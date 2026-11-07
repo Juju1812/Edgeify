@@ -6,12 +6,10 @@ import {
   DEFAULT_OVERLAY_COLOR,
   PLACEMENT_MATCHES,
   START_ELO,
-  TRAIT_KEYS,
   type MeProfile,
   type PublicProfile,
   type Reading,
-  type Score,
-  type Traits
+  type Score
 } from "@/lib/shared/types";
 
 /** Stored shape. Server-authoritative: clients never write these fields directly. */
@@ -112,6 +110,7 @@ export function toPublic(p: StoredProfile, rank: number | null, online: boolean)
     bio: p.bio,
     country: p.country,
     hasFace: p.hasFace,
+    faceAt: p.faceAt,
     overall: p.score?.overall ?? null,
     traits: p.score ? normalizeTraits(p.score.traits) : null,
     headline: p.score?.headline ?? null,
@@ -122,33 +121,19 @@ export function toPublic(p: StoredProfile, rank: number | null, online: boolean)
 }
 
 /**
- * Fold a new AI reading into the profile. The displayed score is the mean
- * of the last few readings, which smooths out lighting/angle noise and makes
- * one lucky frame worth less.
+ * Set the profile score from a new scan. The score is exactly what the most
+ * recent scan said — no averaging. (Match readings don't touch it.)
  */
-export function addReading(
+export function setScanScore(
   p: StoredProfile,
   reading: Reading,
   text: Pick<Score, "headline" | "strengths" | "improvements" | "confidence"> & { sex?: Score["sex"] }
 ) {
-  // Readings made on an older scoring scale aren't comparable — drop them
-  // once a reading on the current scale arrives.
-  const v = reading.v ?? 1;
-  p.readings = [...p.readings.filter((r) => (r.v ?? 1) === v), reading].slice(-MAX_READINGS);
-  const n = p.readings.length;
-  const mean = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length));
-  // Per trait, prefer readings that measured it natively; only fall back to
-  // values mapped from the old categories when none did.
-  const traits = Object.fromEntries(
-    TRAIT_KEYS.map((k) => {
-      const native = p.readings.map((r) => (r.traits as Record<string, number>)[k]).filter((v) => typeof v === "number");
-      return [k, native.length ? mean(native) : mean(p.readings.map((r) => normalizeTraits(r.traits)[k]))];
-    })
-  ) as Traits;
+  p.readings = [...p.readings, reading].slice(-MAX_READINGS); // kept as history only
   p.score = {
-    overall: mean(p.readings.map((r) => r.overall)),
-    traits,
-    readings: n,
+    overall: reading.overall,
+    traits: normalizeTraits(reading.traits),
+    readings: 1,
     updatedAt: reading.at,
     ...text,
     sex: text.sex ?? p.score?.sex

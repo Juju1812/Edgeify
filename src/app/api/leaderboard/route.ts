@@ -22,7 +22,8 @@ export const GET = handle(async () => {
       wins: p.wins,
       losses: p.losses,
       country: p.country,
-      hasFace: p.hasFace
+      hasFace: p.hasFace,
+      faceAt: p.faceAt
     });
   });
   return json({ rows });

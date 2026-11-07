@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { api, ApiError } from "@/lib/client/api";
 import { useSession } from "@/lib/client/session";
-import { Avatar, Button, Empty, Notice } from "@/components/ui";
+import { Avatar, Button, Empty, Notice, UserName } from "@/components/ui";
 import { Linkified, useVisiblePoll } from "@/components/social/helpers";
 import type { PublicProfile } from "@/lib/shared/types";
 
@@ -172,7 +172,7 @@ export default function ConversationPage({ params }: { params: { username: strin
         <Link href={`/u/${name}`} className="flex min-w-0 items-center gap-3">
           <Avatar username={name} hasFace={other ? other.hasFace : false} size={40} online={other?.online} />
           <span className="min-w-0">
-            <span className="block truncate text-[17px] font-semibold text-ink">{name}</span>
+            <UserName username={name} className="flex text-[17px] font-semibold text-ink" />
             <span className="block text-[13px] text-ink-3">
               {other ? (other.online ? "Online" : "Offline") : " "}
             </span>

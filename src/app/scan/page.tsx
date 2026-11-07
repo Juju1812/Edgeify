@@ -91,7 +91,7 @@ export default function ScanPage() {
     const pts = tracker.landmarks.current ? [...tracker.landmarks.current] : null;
     const still = grabMirroredFrame(video);
     const { frames, ratios } = await captureFaceBurst(video, () => tracker.landmarks.current, 5, 280);
-    const thumb = grabThumb(video);
+    const thumb = grabThumb(video, tracker.landmarks.current ?? pts);
     setPhase({ k: "analyzing" });
     try {
       const r = await api<{ ok: true; reading: Reading; me: MeProfile }>("/api/scan", { body: { frames, thumb, ratios } });
@@ -282,8 +282,6 @@ function Result({
   color: string;
   onAgain: () => void;
 }) {
-  const avg = me.score;
-  const multiple = (avg?.readings ?? 1) > 1;
   // Landscape webcam shots get the full card width; portrait/square sit beside the text.
   const wide = !!snap && snap.width / snap.height > 1.2;
   return (
@@ -318,12 +316,6 @@ function Result({
                 {tierLabel(reading.overall, reading.sex)} · {formatPsl(reading.overall)}
               </p>
               <h1 className="display mt-2 text-[30px] leading-[1.1] md:text-[38px]">{reading.headline}</h1>
-              {multiple && avg && (
-                <p className="mt-3 text-[15px] text-ink-3">
-                  Your score is <span className="font-semibold text-ink">{avg.overall}</span> — the average of your last{" "}
-                  {avg.readings} readings, so one bad angle never sinks you.
-                </p>
-              )}
               {reading.confidence === "low" && (
                 <p className="mt-3 text-[14px] text-warn">Low-confidence read — better lighting will give a truer score.</p>
               )}
